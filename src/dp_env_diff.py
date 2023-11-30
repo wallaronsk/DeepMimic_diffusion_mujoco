@@ -174,10 +174,10 @@ if __name__ == "__main__":
     env = DPEnv()
     env.reset_model()
 
-    import cv2
-    from VideoSaver import VideoSaver
-    width = 640
-    height = 480
+    # import cv2
+    # from VideoSaver import VideoSaver
+    # width = 640
+    # height = 480
 
     # vid_save = VideoSaver(width=width, height=height)
 
