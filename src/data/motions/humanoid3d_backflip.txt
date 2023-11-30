@@ -1,4 +1,5 @@
 {
+"Motion": "backflip",
 "Loop": "wrap",
 "Frames":
 [
