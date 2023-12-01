@@ -1,5 +1,4 @@
 {
-    "Motion": "crawl",
 "Loop": "wrap",
 "Frames":
 [
