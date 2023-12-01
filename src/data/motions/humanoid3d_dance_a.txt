@@ -1,5 +1,4 @@
 {
-    "Motion": "dance_a",
 "Loop": "wrap",
 "Frames":
 [
