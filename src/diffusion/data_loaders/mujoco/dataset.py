@@ -2,8 +2,8 @@ import os
 import json
 from torch.utils.data import Dataset
 
-class MotionDataset(Dataset):
-    def __init__(self, folder_path):
+class MujocoMotionDataset(Dataset):
+    def __init__(self, folder_path='src/data/motions'):
         self.folder_path = folder_path
         self.motion_data = []
         self.labels = []
@@ -26,7 +26,7 @@ class MotionDataset(Dataset):
 
 if __name__ == '__main__':
     folder_path = 'src/data/motions'
-    dataset = MotionDataset(folder_path)
+    dataset = MujocoMotionDataset(folder_path)
 
     for i in range(len(dataset)):
         motion_data, label = dataset[i]
