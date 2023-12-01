@@ -6,7 +6,7 @@ import copy
 import numpy as np
 from os import getcwd
 from pyquaternion import Quaternion
-from mujoco.mocap_util import align_position, align_rotation, BODY_JOINTS, BODY_JOINTS_IN_DP_ORDER, DOF_DEF, BODY_DEFS
+from diffusion.utils.mocap_util import align_position, align_rotation, BODY_JOINTS, BODY_JOINTS_IN_DP_ORDER, DOF_DEF, BODY_DEFS
 from transformations import euler_from_quaternion, quaternion_from_euler
 
 class MocapDM(object):
@@ -181,11 +181,11 @@ class MocapDM(object):
 if __name__ == "__main__":
     test = MocapDM()
     test.load_mocap("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_backflip.txt")
-    # print("DT", test.dt)
-    # print("All states",  len(test.all_states), test.all_states[0])
-    print("Data", test.data[0], len(test.data))
-    print("Data vel (vel)", test.data_vel[0], len(test.data_vel))
-    print("Data config (pos)", test.data_config[0], len(test.data_config))
-    # print("Durations", test.durations[0], len(test.durations))
-
-    # test.play("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_jump.txt")
+    
+    # backflip 32 frames
+    print(len(test.all_states), len(test.all_states[0])) # 29 frames, 14 joints
+    print(test.data.shape) # (29 frames, 44 data points) - original data
+    test.data_config = np.array(test.data_config)
+    print(test.data_config.shape) # (29 frames, 35 angles) 
+    test.data_vel = np.array(test.data_vel)
+    print(test.data_vel.shape) # (29 frames, 34 velocities)
