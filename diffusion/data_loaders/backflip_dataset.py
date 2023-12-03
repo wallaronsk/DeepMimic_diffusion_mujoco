@@ -1,7 +1,7 @@
 import os
 import torch
 from torch.utils.data import Dataset
-from diffusion.utils.mocap_v2 import MocapDM
+from utils.mocap_v2 import MocapDM
 import numpy as np
 
 class BackflipMotionDataset(Dataset):
@@ -22,10 +22,12 @@ class BackflipMotionDataset(Dataset):
             data_vel = self.mocap_dm.data_vel[i:num_frames] + self.mocap_dm.data_vel[0:i]
             data_vel = torch.tensor(np.array(data_vel))
 
-            self.motion_data.append((data_config, data_vel))
+            motion = torch.cat((data_config, data_vel), dim=0)
+            print(motion.shape)
+            self.motion_data.append(motion)
 
     def __len__(self):
-        return len(self.pos)
+        return len(self.motion_data)
 
     def __getitem__(self, idx):
         return self.motion_data[idx]
