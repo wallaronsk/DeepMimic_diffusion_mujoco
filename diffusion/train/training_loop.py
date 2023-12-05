@@ -126,7 +126,7 @@ class TrainLoop:
     def run_loop(self):
         
         for epoch in range(self.num_epochs):
-            print(f'Starting epoch {epoch}')
+            print(f'Starting epoch {epoch}/{self.num_epochs}')
             for motion in tqdm(self.data): # self.data is [bs, num_frames, joint_config + joint_vel]
                 if not (not self.lr_anneal_steps or self.step + self.resume_step < self.lr_anneal_steps):
                     break
@@ -241,7 +241,7 @@ class TrainLoop:
         pass
 
     def evaluate(self):
-        pass
+        print("Skipping evaluation for now.")
         
     # def run_step_mdm(self, batch, cond):
     #     self.forward_backward(batch, cond)
