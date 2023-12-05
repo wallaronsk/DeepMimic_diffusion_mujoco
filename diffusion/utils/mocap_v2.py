@@ -6,8 +6,8 @@ import copy
 import numpy as np
 from os import getcwd
 from pyquaternion import Quaternion
-from utils.mocap_util import align_position, align_rotation, BODY_JOINTS, BODY_JOINTS_IN_DP_ORDER, DOF_DEF, BODY_DEFS
-from transformations import euler_from_quaternion, quaternion_from_euler
+from diffusion.utils.mocap_util import align_position, align_rotation, BODY_JOINTS, BODY_JOINTS_IN_DP_ORDER, DOF_DEF, BODY_DEFS
+from diffusion.utils.transformations import euler_from_quaternion, quaternion_from_euler
 
 class MocapDM(object):
     def __init__(self):
