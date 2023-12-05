@@ -212,6 +212,11 @@ class GaussianDiffusion:
         # print('mse_loss_val', mse_loss_val)
         return mse_loss_val
 
+    def unmasked_l2(self, a, b):
+        # assuming a.shape == b.shape == bs, J, Jdim, seqlen
+        loss = self.l2_loss(a, b)
+        loss = sum_flat(loss)
+        return loss
 
     def q_mean_variance(self, x_start, t):
         """
@@ -1241,11 +1246,11 @@ class GaussianDiffusion:
         # enc = model.model._modules['module']
         enc = model.model
         # mask = model_kwargs['y']['mask']
-        get_xyz = lambda sample: enc.rot2xyz(sample, mask=None, pose_rep=enc.pose_rep, translation=enc.translation,
-                                             glob=enc.glob,
-                                             # jointstype='vertices',  # 3.4 iter/sec # USED ALSO IN MotionCLIP
-                                             jointstype='smpl',  # 3.4 iter/sec
-                                             vertstrans=False)
+        # get_xyz = lambda sample: enc.rot2xyz(sample, mask=None, pose_rep=enc.pose_rep, translation=enc.translation,
+        #                                      glob=enc.glob,
+        #                                      # jointstype='vertices',  # 3.4 iter/sec # USED ALSO IN MotionCLIP
+        #                                      jointstype='smpl',  # 3.4 iter/sec
+        #                                      vertstrans=False)
 
         if model_kwargs is None:
             model_kwargs = {}
@@ -1268,7 +1273,6 @@ class GaussianDiffusion:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
             model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
-
             # Not using this 
             # <IGNORE>
             # if self.model_var_type in [
@@ -1301,13 +1305,14 @@ class GaussianDiffusion:
                 ModelMeanType.START_X: x_start,
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
-            print('x_start.shape', x_start.shape)
-            print("model_output.shape", model_output.shape)
-            print('target.shape', target.shape)
+            # print('x_start.shape', x_start.shape)
+            # print("model_output.shape", model_output.shape)
+            # print('target.shape', target.shape)
             assert model_output.shape == target.shape == x_start.shape  # [bs, njoints, nfeats, nframes]
 
             # terms["rot_mse"] = self.masked_l2(target, model_output, mask) # mean_flat(rot_mse)
-            return self.l2_loss(target, model_output)
+            terms["loss"] = self.unmasked_l2(target, model_output)
+            # print("terms['loss'].shape", terms["loss"].shape, terms["loss"])
 
             # target_xyz, model_output_xyz = None, None
 
