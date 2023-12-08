@@ -25,12 +25,13 @@ def play(mocap_filepath):
 
     # vid_save = VideoSaver(width=width, height=height)
     while True:
-        for frame in mocap:
+    # for i in range(5):
+        for frame in mocap: 
             data_config, data_vel = frame[:35], frame[34:]
             tmp_val = data_config
             sim_state = sim.get_state()
             sim_state.qpos[:] = tmp_val[:]
-            sim_state.qpos[:3] +=  phase_offset[:]
+            # sim_state.qpos[:3] +=  phase_offset[:]
             sim.set_state(sim_state)
             sim.forward()
             viewer.render()
@@ -45,4 +46,4 @@ def play(mocap_filepath):
     
 
 if __name__ == '__main__':
-    play("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/sampled_motions/motion_0.npy")
+    play("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/exp6_more_training_mixed_data/sampled_motions/motion_1.npy") 

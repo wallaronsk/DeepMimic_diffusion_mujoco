@@ -100,6 +100,7 @@ class MocapDM(object):
             else:
                 tmp_vel += ((self.data[k, init_idx:offset_idx] - self.data[k-1, init_idx:offset_idx])*1.0/dura).tolist()
             tmp_angle += state['root_pos'].tolist()
+            # print(len(tmp_vel), len(tmp_angle))
 
             # root rot
             init_idx = offset_idx
@@ -109,7 +110,9 @@ class MocapDM(object):
                 tmp_vel += [0.0, 0.0, 0.0]
             else:
                 tmp_vel += self.calc_rot_vel(self.data[k, init_idx:offset_idx], self.data[k-1, init_idx:offset_idx], dura)
+            tmp_vel += [0.0] # add one to even out the length
             tmp_angle += state['root_rot'].tolist()
+            # print(len(tmp_vel), len(tmp_angle))
 
             for each_joint in BODY_JOINTS:
                 init_idx = offset_idx
@@ -143,6 +146,7 @@ class MocapDM(object):
                     #     import pdb
                     #     pdb.set_trace()
                     #     print(diff)
+                # print(len(tmp_vel), len(tmp_angle))
             self.data_vel.append(np.array(tmp_vel))
             self.data_config.append(np.array(tmp_angle))
 
@@ -180,12 +184,12 @@ class MocapDM(object):
 
 if __name__ == "__main__":
     test = MocapDM()
-    test.load_mocap("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_backflip.txt")
-    
+    # test.load_mocap("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_backflip.txt")
+    test.play("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_backflip.txt")
     # backflip 32 frames
-    print(len(test.all_states), len(test.all_states[0])) # 29 frames, 14 joints
-    print(test.data.shape) # (29 frames, 44 data points) - original data
-    test.data_config = np.array(test.data_config)
-    print(test.data_config.shape) # (29 frames, 35 angles) 
-    test.data_vel = np.array(test.data_vel)
-    print(test.data_vel.shape) # (29 frames, 34 velocities)
+    # print(len(test.all_states), len(test.all_states[0])) # 29 frames, 14 joints
+    # print(test.data.shape) # (29 frames, 44 data points) - original data
+    # test.data_config = np.array(test.data_config)
+    # print(test.data_config.shape) # (29 frames, 35 angles) 
+    # test.data_vel = np.array(test.data_vel)
+    # print(test.data_vel.shape) # (29 frames, 34 velocities)
