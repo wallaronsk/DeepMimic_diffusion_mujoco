@@ -23,6 +23,12 @@ class BackflipMotionDataset(Dataset):
             motion = torch.cat((data_config, data_vel), dim=1)
             self.motion_data.append(motion)
 
+        # Repeat motion_data 10 times
+        self.motion_data *= 10
+
+        # Replace motion data with just the first data but multiply that by 200 times
+        # self.motion_data = [self.motion_data[0]] * 1000
+
     def __len__(self):
         return len(self.motion_data)
 
@@ -32,8 +38,9 @@ class BackflipMotionDataset(Dataset):
 if __name__ == '__main__':
     dataset = BackflipMotionDataset("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_backflip.txt")
     print(dataset[0].shape)
-    print(dataset[0][1] == dataset[1][0])
-    print(dataset[0][1] == dataset[2][-1])
+    print(dataset[0][1] == dataset[0][1])
+    # print(dataset[0][1] == dataset[1][0])
+    # print(dataset[0][1] == dataset[2][-1])
 
-    for data in dataset:
-        print(data.shape)
+    # for data in dataset:
+    #     print(data.shape)
