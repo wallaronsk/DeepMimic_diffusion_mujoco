@@ -24,7 +24,7 @@ class BackflipMotionDataset(Dataset):
             self.motion_data.append(motion)
 
         # Repeat motion_data 10 times
-        self.motion_data *= 10
+        self.motion_data *= 100
 
         # Replace motion data with just the first data but multiply that by 200 times
         # self.motion_data = [self.motion_data[0]] * 1000
