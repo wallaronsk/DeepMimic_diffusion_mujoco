@@ -3,7 +3,7 @@ import numpy as np
 def play(mocap_filepath):
     from mujoco_py import load_model_from_xml, MjSim, MjViewer
 
-    xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/src/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml'
+    xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/diffusion/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml'
     with open(xmlpath) as fin:
         MODEL_XML = fin.read()
 
