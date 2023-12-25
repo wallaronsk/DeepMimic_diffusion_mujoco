@@ -16,10 +16,52 @@ class MocapDM(object):
         self.rot_dim = 4
 
     def load_mocap(self, filepath):
-        self.read_raw_data(filepath)
+        self.read_raw_data_from_file(filepath)
         self.convert_raw_data()
 
-    def read_raw_data(self, filepath):
+    def load_mocap_from_raw(self, raw_data):
+        self.read_raw_data(raw_data)
+        self.convert_raw_data()
+
+    def read_raw_data(self, raw_data):
+        motions = None
+        all_states = []
+        durations = []
+        motions = np.array(raw_data)
+        self.frames_raw = motions.copy()
+        self.frames = motions
+        m_shape = np.shape(motions)
+        self.data = np.full(m_shape, np.nan)
+
+        total_time = 0.0
+        self.dt = motions[0][0]
+        for each_frame in motions:
+            duration = each_frame[0]
+            each_frame[0] = total_time
+            total_time += duration
+            durations.append(duration)
+
+            curr_idx = 1
+            offset_idx = 8
+            state = {}
+            state['root_pos'] = align_position(each_frame[curr_idx:curr_idx+3])
+            # state['root_pos'][2] += 0.08
+            state['root_rot'] = align_rotation(each_frame[curr_idx+3:offset_idx])
+            for each_joint in BODY_JOINTS_IN_DP_ORDER:
+                curr_idx = offset_idx
+                dof = DOF_DEF[each_joint]
+                if dof == 1:
+                    offset_idx += 1
+                    state[each_joint] = each_frame[curr_idx:offset_idx]
+                elif dof == 3:
+                    offset_idx += 4
+                    state[each_joint] = align_rotation(each_frame[curr_idx:offset_idx])
+            all_states.append(state)
+
+        self.all_states = all_states
+        self.durations = durations
+
+    def read_raw_data_from_file(self, filepath):
         motions = None
         all_states = []
 
@@ -28,6 +70,8 @@ class MocapDM(object):
         with open(filepath, 'r') as fin:
             data = json.load(fin)
             motions = np.array(data["Frames"])
+            self.frames_raw = motions.copy()
+            self.frames = motions
             m_shape = np.shape(motions)
             self.data = np.full(m_shape, np.nan)
 
@@ -85,6 +129,8 @@ class MocapDM(object):
                 dura = self.durations[k]
             else:
                 dura = self.durations[k-1]
+            if dura == 0:
+                dura = 0.0167
 
             # time duration
             init_idx = 0
@@ -110,7 +156,7 @@ class MocapDM(object):
                 tmp_vel += [0.0, 0.0, 0.0]
             else:
                 tmp_vel += self.calc_rot_vel(self.data[k, init_idx:offset_idx], self.data[k-1, init_idx:offset_idx], dura)
-            tmp_vel += [0.0] # add one to even out the length
+            # tmp_vel += [0.0] # add one to even out the length
             tmp_angle += state['root_rot'].tolist()
             # print(len(tmp_vel), len(tmp_angle))
 
@@ -153,7 +199,7 @@ class MocapDM(object):
     def play(self, mocap_filepath):
         from mujoco_py import load_model_from_xml, MjSim, MjViewer
 
-        xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/src/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml'
+        xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/diffusion/assets/dp_env_v2.xml'
         with open(xmlpath) as fin:
             MODEL_XML = fin.read()
 
@@ -173,7 +219,9 @@ class MocapDM(object):
                 tmp_val = self.data_config[k]
                 sim_state = sim.get_state()
                 sim_state.qpos[:] = tmp_val[:]
-                sim_state.qpos[:3] +=  phase_offset[:]
+                # sim_state.qpos[:3] +=  phase_offset[:]
+                print(phase_offset)
+                sim_state.qvel[:] = self.data_vel[k][:]
                 sim.set_state(sim_state)
                 sim.forward()
                 viewer.render()
@@ -184,8 +232,11 @@ class MocapDM(object):
 
 if __name__ == "__main__":
     test = MocapDM()
-    # test.load_mocap("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_backflip.txt")
-    test.play("/home/kenji/Fyp/DeepMimic_mujoco/src/data/motions/humanoid3d_backflip.txt")
+    test.load_mocap("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_spinkick.txt")
+    print(test.frames_raw)
+    # print(test.data_config[0].shape)
+    # print(test.data_vel[0].shape)
+    # test.play("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_spinkick.txt")
     # backflip 32 frames
     # print(len(test.all_states), len(test.all_states[0])) # 29 frames, 14 joints
     # print(test.data.shape) # (29 frames, 44 data points) - original data

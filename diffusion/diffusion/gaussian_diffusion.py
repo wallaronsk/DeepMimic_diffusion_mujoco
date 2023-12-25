@@ -15,6 +15,9 @@ import torch as th
 from copy import deepcopy
 from diffusion.diffusion.nn import mean_flat, sum_flat
 from diffusion.diffusion.losses import normal_kl, discretized_gaussian_log_likelihood
+
+from diffusion.utils.mocap_v2 import MocapDM
+
 # from data_loaders.humanml.scripts import motion_process
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, scale_betas=1.):
@@ -216,6 +219,7 @@ class GaussianDiffusion:
         # assuming a.shape == b.shape == bs, J, Jdim, seqlen
         loss = self.l2_loss(a, b)
         loss = sum_flat(loss)
+        loss = torch.nan_to_num(loss, nan=0.0)
         return loss
 
     def q_mean_variance(self, x_start, t):
@@ -1229,7 +1233,7 @@ class GaussianDiffusion:
         output = th.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None, dataset=None):
+    def training_losses(self, model, x_start: torch.Tensor, t, model_kwargs=None, noise=None, dataset=None):
         """
         Compute training losses for a single timestep.
 
@@ -1243,6 +1247,8 @@ class GaussianDiffusion:
                  Some mean or variance settings may also have other keys.
         """
 
+        target_mocap_dm = MocapDM()
+        output_mocap_dm = MocapDM()
         # enc = model.model._modules['module']
         enc = model.model
         # mask = model_kwargs['y']['mask']
@@ -1311,12 +1317,25 @@ class GaussianDiffusion:
             assert model_output.shape == target.shape == x_start.shape  # [bs, njoints, nfeats, nframes]
 
             # terms["rot_mse"] = self.masked_l2(target, model_output, mask) # mean_flat(rot_mse)
-            terms["loss"] = self.unmasked_l2(target, model_output)
+            terms["frame_loss"] = self.unmasked_l2(target, model_output)
             # print("terms['loss'].shape", terms["loss"].shape, terms["loss"])
 
             # target_xyz, model_output_xyz = None, None
 
-            # if self.lambda_rcxyz > 0.:
+            # print("X_START", x_start.shape, x_start)
+            # print("MODEL_OUTPUT", model_output.shape, model_output)
+            target_mocap_dm.load_mocap_from_raw(x_start.squeeze(0).cpu())
+
+            model_output = model_output.squeeze(0).cpu().detach().numpy()
+            for frame in model_output:
+                frame[0] = 0.0167 # hard code duration
+            output_mocap_dm.load_mocap_from_raw(model_output)
+
+            if self.lambda_rcxyz > 0.:
+                target_xyz = target_mocap_dm.data_config
+                model_output_xyz = output_mocap_dm.data_config
+                terms["rcxyz_mse"] = self.unmasked_l2(torch.tensor(np.array(target_xyz)), torch.tensor(np.array(model_output_xyz))).to(x_start.device)
+                # print("rcxyz MSE", terms["rcxyz_mse"])
             #     target_xyz = get_xyz(target)  # [bs, nvertices(vertices)/njoints(smpl), 3, nframes]
             #     model_output_xyz = get_xyz(model_output)  # [bs, nvertices, 3, nframes]
             #     terms["rcxyz_mse"] = self.masked_l2(target_xyz, model_output_xyz, mask)  # mean_flat((target_xyz - model_output_xyz) ** 2)
@@ -1346,7 +1365,11 @@ class GaussianDiffusion:
             #         terms["fc"] = self.masked_l2(pred_vel,
             #                                      torch.zeros(pred_vel.shape, device=pred_vel.device),
             #                                      mask[:, :, :, 1:])
-            # if self.lambda_vel > 0.:
+            if self.lambda_vel > 0.:
+                target_vel = target_mocap_dm.data_vel
+                model_output_vel = output_mocap_dm.data_vel
+                terms["vel_mse"] = self.unmasked_l2(torch.tensor(np.array(target_vel)), torch.tensor(np.array(model_output_vel))).to(x_start.device)
+                # print("Vel MSE", terms["vel_mse"])
             #     target_vel = (target[..., 1:] - target[..., :-1])
             #     model_output_vel = (model_output[..., 1:] - model_output[..., :-1])
             #     terms["vel_mse"] = self.masked_l2(target_vel[:, :-1, :, :], # Remove last joint, is the root location!
@@ -1358,6 +1381,7 @@ class GaussianDiffusion:
             #                 (self.lambda_rcxyz * terms.get('rcxyz_mse', 0.)) + \
             #                 (self.lambda_fc * terms.get('fc', 0.))
 
+            terms["loss"] = terms["frame_loss"] + (self.lambda_vel * terms.get('vel_mse', 0.)) + (self.lambda_rcxyz * terms.get('rcxyz_mse', 0.))
         else:
             raise NotImplementedError(self.loss_type)
 
