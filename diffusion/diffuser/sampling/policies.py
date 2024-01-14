@@ -4,24 +4,20 @@ import einops
 import pdb
 
 import diffuser.utils as utils
-from diffuser.datasets.preprocessing import get_policy_preprocess_fn
-
 
 Trajectories = namedtuple('Trajectories', 'actions observations values')
 
 
 class GuidedPolicy:
 
-    def __init__(self, guide, diffusion_model, normalizer, preprocess_fns, **sample_kwargs):
+    def __init__(self, guide, diffusion_model, normalizer, **sample_kwargs):
         self.guide = guide
         self.diffusion_model = diffusion_model
         self.normalizer = normalizer
         self.action_dim = diffusion_model.action_dim
-        self.preprocess_fn = get_policy_preprocess_fn(preprocess_fns)
         self.sample_kwargs = sample_kwargs
 
     def __call__(self, conditions, batch_size=1, verbose=True):
-        conditions = {k: self.preprocess_fn(v) for k, v in conditions.items()}
         conditions = self._format_conditions(conditions, batch_size)
 
         ## run reverse diffusion process
