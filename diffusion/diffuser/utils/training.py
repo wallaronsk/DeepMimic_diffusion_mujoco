@@ -7,7 +7,6 @@ import pdb
 
 from .arrays import batch_to_device, to_np, to_device, apply_dict
 from .timer import Timer
-from .cloud import sync_logs
 
 def cycle(dl):
     while True:
@@ -125,13 +124,6 @@ class Trainer(object):
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
 
-            # remove rendering for now, its a hassle
-            # if self.step == 0 and self.sample_freq:
-            #     self.render_reference(self.n_reference)
-
-            # if self.sample_freq and self.step % self.sample_freq == 0:
-            #     self.render_samples()
-
             self.step += 1
 
     def save(self, epoch):
@@ -147,8 +139,6 @@ class Trainer(object):
         savepath = os.path.join(self.logdir, f'state_{epoch}.pt')
         torch.save(data, savepath)
         print(f'[ utils/training ] Saved model to {savepath}', flush=True)
-        if self.bucket is not None:
-            sync_logs(self.logdir, bucket=self.bucket, background=self.save_parallel)
 
     def load(self, epoch):
         '''
@@ -160,69 +150,3 @@ class Trainer(object):
         self.step = data['step']
         self.model.load_state_dict(data['model'])
         self.ema_model.load_state_dict(data['ema'])
-
-    #-----------------------------------------------------------------------------#
-    #--------------------------------- rendering ---------------------------------#
-    #-----------------------------------------------------------------------------#
-
-    def render_reference(self, batch_size=10):
-        '''
-            renders training points
-        '''
-
-        ## get a temporary dataloader to load a single batch
-        dataloader_tmp = cycle(torch.utils.data.DataLoader(
-            self.dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True
-        ))
-        batch = dataloader_tmp.__next__()
-        dataloader_tmp.close()
-
-        ## get trajectories and condition at t=0 from batch
-        trajectories = to_np(batch.trajectories)
-        conditions = to_np(batch.conditions[0])[:,None]
-
-        ## [ batch_size x horizon x observation_dim ]
-        normed_observations = trajectories[:, :, self.dataset.action_dim:]
-        observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-
-        savepath = os.path.join(self.logdir, f'_sample-reference.png')
-        # self.renderer.composite(savepath, observations)
-
-    def render_samples(self, batch_size=2, n_samples=2):
-        '''
-            renders samples from (ema) diffusion model
-        '''
-        for i in range(batch_size):
-
-            ## get a single datapoint
-            batch = self.dataloader_vis.__next__()
-            conditions = to_device(batch.conditions, 'cuda:0')
-
-            ## repeat each item in conditions `n_samples` times
-            conditions = apply_dict(
-                einops.repeat,
-                conditions,
-                'b d -> (repeat b) d', repeat=n_samples,
-            )
-
-            ## [ n_samples x horizon x (action_dim + observation_dim) ]
-            samples = self.ema_model(conditions)
-            trajectories = to_np(samples.trajectories)
-
-            ## [ n_samples x horizon x observation_dim ]
-            normed_observations = trajectories[:, :, self.dataset.action_dim:]
-
-            # [ 1 x 1 x observation_dim ]
-            normed_conditions = to_np(batch.conditions[0])[:,None]
-
-            ## [ n_samples x (horizon + 1) x observation_dim ]
-            normed_observations = np.concatenate([
-                np.repeat(normed_conditions, n_samples, axis=0),
-                normed_observations
-            ], axis=1)
-
-            ## [ n_samples x (horizon + 1) x observation_dim ]
-            observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-
-            savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.png')
-            self.renderer.composite(savepath, observations)
