@@ -4,7 +4,7 @@ import numpy as np
 def play_with_pos_vel(mocap_filepath):
     from mujoco_py import load_model_from_xml, MjSim, MjViewer
 
-    xmlpath = "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml"
+    xmlpath = "diffusion/assets/dp_env_v2.xml"
     with open(xmlpath) as fin:
         MODEL_XML = fin.read()
 
@@ -94,6 +94,4 @@ def play_with_frame_data(mocap_filepath):
 
 
 if __name__ == "__main__":
-    play_with_pos_vel(
-        "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/walk-motion/sampled_motions/motion1.npy"
-    )
+    play_with_pos_vel("diffusion/logs/walk-motion2/sampled_motions/motion1.npy")
