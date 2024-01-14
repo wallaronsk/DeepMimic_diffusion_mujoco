@@ -26,13 +26,11 @@ def play_with_pos_vel(mocap_filepath):
     # vid_save = VideoSaver(width=width, height=height)
     while True:
     # for i in range(5):
-        for frame in mocap: 
-            data_config, data_vel = frame[:35], frame[35:]
-            print(len(data_config), len(data_vel))
-            tmp_val = data_config
+        for config in mocap: 
+            tmp_val = config
             sim_state = sim.get_state()
             sim_state.qpos[:] = tmp_val[:]
-            # sim_state.qpos[:3] +=  phase_offset[:]
+            sim_state.qpos[:3] +=  phase_offset[:]
             sim.set_state(sim_state)
             sim.forward()
             viewer.render()
@@ -93,4 +91,5 @@ def play_with_frame_data(mocap_filepath):
     # vid_save.close()
 
 if __name__ == '__main__':
-    play_with_frame_data("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/model-v2-frame-data/sampled_motions/motion_2.npy") 
+    play_with_pos_vel("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/diffuser2/sampled_motions/motion1.npy") 
+    # play_with_frame_data("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/model-v2-frame-data/sampled_motions/motion_0.npy") 
