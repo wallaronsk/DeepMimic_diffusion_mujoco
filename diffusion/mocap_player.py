@@ -1,9 +1,10 @@
 import numpy as np
 
+
 def play_with_pos_vel(mocap_filepath):
     from mujoco_py import load_model_from_xml, MjSim, MjViewer
 
-    xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/diffusion/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml'
+    xmlpath = "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml"
     with open(xmlpath) as fin:
         MODEL_XML = fin.read()
 
@@ -13,7 +14,7 @@ def play_with_pos_vel(mocap_filepath):
 
     # Load the mocap
     mocap = np.load(mocap_filepath)
-    print(mocap.shape)  
+    print(mocap.shape)
     from time import sleep
 
     phase_offset = np.array([0.0, 0.0, 0.0])
@@ -25,12 +26,12 @@ def play_with_pos_vel(mocap_filepath):
 
     # vid_save = VideoSaver(width=width, height=height)
     while True:
-    # for i in range(5):
-        for config in mocap: 
+        # for i in range(5):
+        for config in mocap:
             tmp_val = config
             sim_state = sim.get_state()
             sim_state.qpos[:] = tmp_val[:]
-            sim_state.qpos[:3] +=  phase_offset[:]
+            sim_state.qpos[:3] += phase_offset[:]
             sim.set_state(sim_state)
             sim.forward()
             viewer.render()
@@ -42,11 +43,12 @@ def play_with_pos_vel(mocap_filepath):
 
     # vid_save.close()
 
+
 def play_with_frame_data(mocap_filepath):
     from mujoco_py import load_model_from_xml, MjSim, MjViewer
     from diffusion.utils.mocap_v2 import MocapDM
 
-    xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/diffusion/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml'
+    xmlpath = "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/mujoco/humanoid_deepmimic/envs/asset/dp_env_v2.xml"
     with open(xmlpath) as fin:
         MODEL_XML = fin.read()
 
@@ -72,12 +74,12 @@ def play_with_frame_data(mocap_filepath):
 
     # vid_save = VideoSaver(width=width, height=height)
     while True:
-    # for i in range(5):
-        for config, vel in zip(data_config, data_vel): 
+        # for i in range(5):
+        for config, vel in zip(data_config, data_vel):
             tmp_val = config
             sim_state = sim.get_state()
             sim_state.qpos[:] = tmp_val[:]
-            sim_state.qpos[:3] +=  phase_offset[:]
+            sim_state.qpos[:3] += phase_offset[:]
             sim_state.qvel[:] = vel[:]
             sim.set_state(sim_state)
             sim.forward()
@@ -90,6 +92,8 @@ def play_with_frame_data(mocap_filepath):
 
     # vid_save.close()
 
-if __name__ == '__main__':
-    play_with_pos_vel("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/diffuser2/sampled_motions/motion1.npy") 
-    # play_with_frame_data("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/model-v2-frame-data/sampled_motions/motion_0.npy") 
+
+if __name__ == "__main__":
+    play_with_pos_vel(
+        "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/logs/walk-motion/sampled_motions/motion1.npy"
+    )
