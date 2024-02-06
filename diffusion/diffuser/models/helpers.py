@@ -9,9 +9,10 @@ import pdb
 
 import diffuser.utils as utils
 
-#-----------------------------------------------------------------------------#
-#---------------------------------- modules ----------------------------------#
-#-----------------------------------------------------------------------------#
+# -----------------------------------------------------------------------------#
+# ---------------------------------- modules ----------------------------------#
+# -----------------------------------------------------------------------------#
+
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
@@ -27,6 +28,7 @@ class SinusoidalPosEmb(nn.Module):
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
+
 class Downsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -34,6 +36,7 @@ class Downsample1d(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
 
 class Upsample1d(nn.Module):
     def __init__(self, dim):
@@ -43,28 +46,33 @@ class Upsample1d(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+
 class Conv1dBlock(nn.Module):
-    '''
-        Conv1d --> GroupNorm --> Mish
-    '''
+    """
+    Conv1d --> GroupNorm --> Mish
+    """
 
     def __init__(self, inp_channels, out_channels, kernel_size, n_groups=8):
         super().__init__()
 
         self.block = nn.Sequential(
-            nn.Conv1d(inp_channels, out_channels, kernel_size, padding=kernel_size // 2),
-            Rearrange('batch channels horizon -> batch channels 1 horizon'),
+            nn.Conv1d(
+                inp_channels, out_channels, kernel_size, padding=kernel_size // 2
+            ),
+            Rearrange("batch channels horizon -> batch channels 1 horizon"),
             nn.GroupNorm(n_groups, out_channels),
-            Rearrange('batch channels 1 horizon -> batch channels horizon'),
+            Rearrange("batch channels 1 horizon -> batch channels horizon"),
             nn.Mish(),
         )
 
     def forward(self, x):
         return self.block(x)
 
-#-----------------------------------------------------------------------------#
-#--------------------------------- attention ---------------------------------#
-#-----------------------------------------------------------------------------#
+
+# -----------------------------------------------------------------------------#
+# --------------------------------- attention ---------------------------------#
+# -----------------------------------------------------------------------------#
+
 
 class Residual(nn.Module):
     def __init__(self, fn):
@@ -74,8 +82,9 @@ class Residual(nn.Module):
     def forward(self, x, *args, **kwargs):
         return self.fn(x, *args, **kwargs) + x
 
+
 class LayerNorm(nn.Module):
-    def __init__(self, dim, eps = 1e-5):
+    def __init__(self, dim, eps=1e-5):
         super().__init__()
         self.eps = eps
         self.g = nn.Parameter(torch.ones(1, dim, 1))
@@ -85,6 +94,7 @@ class LayerNorm(nn.Module):
         var = torch.var(x, dim=1, unbiased=False, keepdim=True)
         mean = torch.mean(x, dim=1, keepdim=True)
         return (x - mean) / (var + self.eps).sqrt() * self.g + self.b
+
 
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
@@ -96,35 +106,41 @@ class PreNorm(nn.Module):
         x = self.norm(x)
         return self.fn(x)
 
+
 class LinearAttention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head**-0.5
         self.heads = heads
         hidden_dim = dim_head * heads
         self.to_qkv = nn.Conv1d(dim, hidden_dim * 3, 1, bias=False)
         self.to_out = nn.Conv1d(hidden_dim, dim, 1)
 
     def forward(self, x):
-        qkv = self.to_qkv(x).chunk(3, dim = 1)
-        q, k, v = map(lambda t: einops.rearrange(t, 'b (h c) d -> b h c d', h=self.heads), qkv)
+        qkv = self.to_qkv(x).chunk(3, dim=1)
+        q, k, v = map(
+            lambda t: einops.rearrange(t, "b (h c) d -> b h c d", h=self.heads), qkv
+        )
         q = q * self.scale
 
-        k = k.softmax(dim = -1)
-        context = torch.einsum('b h d n, b h e n -> b h d e', k, v)
+        k = k.softmax(dim=-1)
+        context = torch.einsum("b h d n, b h e n -> b h d e", k, v)
 
-        out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
-        out = einops.rearrange(out, 'b h c d -> b (h c) d')
+        out = torch.einsum("b h d e, b h d n -> b h e n", context, q)
+        out = einops.rearrange(out, "b h c d -> b (h c) d")
         return self.to_out(out)
 
-#-----------------------------------------------------------------------------#
-#---------------------------------- sampling ---------------------------------#
-#-----------------------------------------------------------------------------#
+
+# -----------------------------------------------------------------------------#
+# ---------------------------------- sampling ---------------------------------#
+# -----------------------------------------------------------------------------#
+
 
 def extract(a, t, x_shape):
     b, *_ = t.shape
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
 
 def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
     """
@@ -139,32 +155,48 @@ def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
     betas_clipped = np.clip(betas, a_min=0, a_max=0.999)
     return torch.tensor(betas_clipped, dtype=dtype)
 
-def apply_conditioning(x, conditions, action_dim):
-    for t, val in conditions.items():
-        x[:, t, action_dim:] = val.clone()
+
+# def apply_conditioning(x, conditions, action_dim):
+#     for t, val in conditions.items():
+#         x[:, t, action_dim:] = val.clone()
+#     return x
+
+
+def apply_conditioning(x):
+    # Make it look like its holding a box
+    elbow_val = 1.57  # for 90degrees
+    shoulder_val = [0.0] * 3
+    shoulder_val = torch.tensor(shoulder_val, dtype=torch.float32)
+    x[:, :, 13:16] = shoulder_val
+    x[:, :, 16] = elbow_val
+    x[:, :, 17:20] = shoulder_val
+    x[:, :, 20] = elbow_val
     return x
 
 
-#-----------------------------------------------------------------------------#
-#---------------------------------- losses -----------------------------------#
-#-----------------------------------------------------------------------------#
+# -----------------------------------------------------------------------------#
+# ---------------------------------- losses -----------------------------------#
+# -----------------------------------------------------------------------------#
+
 
 class WeightedLoss(nn.Module):
-
     def __init__(self, weights, action_dim):
         super().__init__()
-        self.register_buffer('weights', weights)
+        self.register_buffer("weights", weights)
         self.action_dim = action_dim
 
     def forward(self, pred, targ):
-        '''
-            pred, targ : tensor
-                [ batch_size x horizon x transition_dim ]
-        '''
+        """
+        pred, targ : tensor
+            [ batch_size x horizon x transition_dim ]
+        """
         loss = self._loss(pred, targ)
         weighted_loss = (loss * self.weights).mean()
-        a0_loss = (loss[:, 0, :self.action_dim] / self.weights[0, :self.action_dim]).mean()
-        return weighted_loss, {'a0_loss': a0_loss}
+        a0_loss = (
+            loss[:, 0, : self.action_dim] / self.weights[0, : self.action_dim]
+        ).mean()
+        return weighted_loss, {"a0_loss": a0_loss}
+
 
 class ValueLoss(nn.Module):
     def __init__(self, *args):
@@ -175,44 +207,47 @@ class ValueLoss(nn.Module):
 
         if len(pred) > 1:
             corr = np.corrcoef(
-                utils.to_np(pred).squeeze(),
-                utils.to_np(targ).squeeze()
-            )[0,1]
+                utils.to_np(pred).squeeze(), utils.to_np(targ).squeeze()
+            )[0, 1]
         else:
             corr = np.NaN
 
         info = {
-            'mean_pred': pred.mean(), 'mean_targ': targ.mean(),
-            'min_pred': pred.min(), 'min_targ': targ.min(),
-            'max_pred': pred.max(), 'max_targ': targ.max(),
-            'corr': corr,
+            "mean_pred": pred.mean(),
+            "mean_targ": targ.mean(),
+            "min_pred": pred.min(),
+            "min_targ": targ.min(),
+            "max_pred": pred.max(),
+            "max_targ": targ.max(),
+            "corr": corr,
         }
 
         return loss, info
 
-class WeightedL1(WeightedLoss):
 
+class WeightedL1(WeightedLoss):
     def _loss(self, pred, targ):
         return torch.abs(pred - targ)
+
 
 class WeightedL2(WeightedLoss):
-
     def _loss(self, pred, targ):
-        return F.mse_loss(pred, targ, reduction='none')
+        return F.mse_loss(pred, targ, reduction="none")
+
 
 class ValueL1(ValueLoss):
-
     def _loss(self, pred, targ):
         return torch.abs(pred - targ)
 
-class ValueL2(ValueLoss):
 
+class ValueL2(ValueLoss):
     def _loss(self, pred, targ):
-        return F.mse_loss(pred, targ, reduction='none')
+        return F.mse_loss(pred, targ, reduction="none")
+
 
 Losses = {
-    'l1': WeightedL1,
-    'l2': WeightedL2,
-    'value_l1': ValueL1,
-    'value_l2': ValueL2,
+    "l1": WeightedL1,
+    "l2": WeightedL2,
+    "value_l1": ValueL1,
+    "value_l2": ValueL2,
 }
