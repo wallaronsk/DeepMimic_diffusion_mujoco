@@ -160,7 +160,7 @@ class GaussianDiffusion(nn.Module):
 
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
-        # x = apply_conditioning(x, cond, self.action_dim)
+        x = apply_conditioning(x)
 
         chain = [x] if return_chain else None
 
@@ -168,7 +168,7 @@ class GaussianDiffusion(nn.Module):
         for i in reversed(range(0, self.n_timesteps)):
             t = make_timesteps(batch_size, i, device)
             x, values = sample_fn(self, x, cond, t, **sample_kwargs)
-            # x = apply_conditioning(x, cond, self.action_dim)
+            x = apply_conditioning(x)
 
             progress.update({'t': i, 'vmin': values.min().item(), 'vmax': values.max().item()})
             if return_chain: chain.append(x)
@@ -208,10 +208,10 @@ class GaussianDiffusion(nn.Module):
         noise = torch.randn_like(x_start)
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        # x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
+        x_noisy = apply_conditioning(x_noisy)
 
         x_recon = self.model(x_noisy, cond, t)
-        # x_recon = apply_conditioning(x_recon, cond, self.action_dim)
+        x_recon = apply_conditioning(x_recon)
 
         assert noise.shape == x_recon.shape
 

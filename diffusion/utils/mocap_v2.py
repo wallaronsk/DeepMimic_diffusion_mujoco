@@ -270,7 +270,7 @@ class MocapDM(object):
 if __name__ == "__main__":
     test = MocapDM()
     test.load_mocap(
-        "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_backflip.txt"
+        "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_walk.txt"
     )
     print(test.data_config[0])
 
