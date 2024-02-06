@@ -19,7 +19,7 @@ conda activate diffmimic
 
 ### Running the main motion generation code
 
-Now you are able to run the notebook, the only one to pay attention to is `temporal_unet_diffusion.ipynb`. I have left headers and comments in the notebook to explain what each cell does.
+All the relevant code is kept within `temporal_unet_diffusion.ipynb`. I have left headers and comments in the notebook to explain what each cell does.
 
 ### Playing the generated motions
 
@@ -31,3 +31,22 @@ python3 mocap_player.py logs/{exp_name}/sampled_motions/motion1.npy
 eg: python3 mocap_player.py logs/walk-motion/sampled_motions/motion1.npy
 ```
 
+### Sampled with constraints
+
+We can apply conditioning directly in the `models/helpers.py` file under the `apply_conditioning` function. Right now its just hardcoded to change the joint positions to look like the human model is holding a box. But essentially you can change these position tensors to anything you want.
+
+In the joint configs, index 13-15 and 17-19 are shoulders representing an euler tuple, 16 and 20 are elbows representing a scalar rotation value in radians. 
+
+TODO: Refactor apply conditioning code and let it be supplied as an argument to the sampling function
+
+### Evaluating constrained sampling
+
+View original data
+```bash
+python3 utils/mocap_v2.py
+```
+
+View sampled motion
+```bash
+python3 mocap_player.py logs/test-constrained-sampling-holding-a-box/sampled_motions/motion1.npy
+```
