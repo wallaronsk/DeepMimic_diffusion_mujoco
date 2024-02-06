@@ -6,8 +6,16 @@ import copy
 import numpy as np
 from os import getcwd
 from pyquaternion import Quaternion
-from diffusion.utils.mocap_util import align_position, align_rotation, BODY_JOINTS, BODY_JOINTS_IN_DP_ORDER, DOF_DEF, BODY_DEFS
+from diffusion.utils.mocap_util import (
+    align_position,
+    align_rotation,
+    BODY_JOINTS,
+    BODY_JOINTS_IN_DP_ORDER,
+    DOF_DEF,
+    BODY_DEFS,
+)
 from diffusion.utils.transformations import euler_from_quaternion, quaternion_from_euler
+
 
 class MocapDM(object):
     def __init__(self):
@@ -44,9 +52,9 @@ class MocapDM(object):
             curr_idx = 1
             offset_idx = 8
             state = {}
-            state['root_pos'] = align_position(each_frame[curr_idx:curr_idx+3])
+            state["root_pos"] = align_position(each_frame[curr_idx : curr_idx + 3])
             # state['root_pos'][2] += 0.08
-            state['root_rot'] = align_rotation(each_frame[curr_idx+3:offset_idx])
+            state["root_rot"] = align_rotation(each_frame[curr_idx + 3 : offset_idx])
             for each_joint in BODY_JOINTS_IN_DP_ORDER:
                 curr_idx = offset_idx
                 dof = DOF_DEF[each_joint]
@@ -67,7 +75,7 @@ class MocapDM(object):
 
         durations = []
 
-        with open(filepath, 'r') as fin:
+        with open(filepath, "r") as fin:
             data = json.load(fin)
             motions = np.array(data["Frames"])
             self.frames_raw = motions.copy()
@@ -86,9 +94,11 @@ class MocapDM(object):
                 curr_idx = 1
                 offset_idx = 8
                 state = {}
-                state['root_pos'] = align_position(each_frame[curr_idx:curr_idx+3])
+                state["root_pos"] = align_position(each_frame[curr_idx : curr_idx + 3])
                 # state['root_pos'][2] += 0.08
-                state['root_rot'] = align_rotation(each_frame[curr_idx+3:offset_idx])
+                state["root_rot"] = align_rotation(
+                    each_frame[curr_idx + 3 : offset_idx]
+                )
                 for each_joint in BODY_JOINTS_IN_DP_ORDER:
                     curr_idx = offset_idx
                     dof = DOF_DEF[each_joint]
@@ -97,7 +107,9 @@ class MocapDM(object):
                         state[each_joint] = each_frame[curr_idx:offset_idx]
                     elif dof == 3:
                         offset_idx += 4
-                        state[each_joint] = align_rotation(each_frame[curr_idx:offset_idx])
+                        state[each_joint] = align_rotation(
+                            each_frame[curr_idx:offset_idx]
+                        )
                 all_states.append(state)
 
         self.all_states = all_states
@@ -107,12 +119,12 @@ class MocapDM(object):
         q_0 = Quaternion(seg_0[0], seg_0[1], seg_0[2], seg_0[3])
         q_1 = Quaternion(seg_1[0], seg_1[1], seg_1[2], seg_1[3])
 
-        q_diff =  q_0.conjugate * q_1
+        q_diff = q_0.conjugate * q_1
         # q_diff =  q_1 * q_0.conjugate
         axis = q_diff.axis
         angle = q_diff.angle
-        
-        tmp_diff = angle/dura * axis
+
+        tmp_diff = angle / dura * axis
         diff_angular = [tmp_diff[0], tmp_diff[1], tmp_diff[2]]
 
         return diff_angular
@@ -128,7 +140,7 @@ class MocapDM(object):
             if k == 0:
                 dura = self.durations[k]
             else:
-                dura = self.durations[k-1]
+                dura = self.durations[k - 1]
             if dura == 0:
                 dura = 0.0167
 
@@ -140,24 +152,35 @@ class MocapDM(object):
             # root pos
             init_idx = offset_idx
             offset_idx += 3
-            self.data[k, init_idx:offset_idx] = np.array(state['root_pos'])
+            self.data[k, init_idx:offset_idx] = np.array(state["root_pos"])
             if k == 0:
                 tmp_vel += [0.0, 0.0, 0.0]
             else:
-                tmp_vel += ((self.data[k, init_idx:offset_idx] - self.data[k-1, init_idx:offset_idx])*1.0/dura).tolist()
-            tmp_angle += state['root_pos'].tolist()
+                tmp_vel += (
+                    (
+                        self.data[k, init_idx:offset_idx]
+                        - self.data[k - 1, init_idx:offset_idx]
+                    )
+                    * 1.0
+                    / dura
+                ).tolist()
+            tmp_angle += state["root_pos"].tolist()
             # print(len(tmp_vel), len(tmp_angle))
 
             # root rot
             init_idx = offset_idx
             offset_idx += 4
-            self.data[k, init_idx:offset_idx] = np.array(state['root_rot'])
+            self.data[k, init_idx:offset_idx] = np.array(state["root_rot"])
             if k == 0:
                 tmp_vel += [0.0, 0.0, 0.0]
             else:
-                tmp_vel += self.calc_rot_vel(self.data[k, init_idx:offset_idx], self.data[k-1, init_idx:offset_idx], dura)
+                tmp_vel += self.calc_rot_vel(
+                    self.data[k, init_idx:offset_idx],
+                    self.data[k - 1, init_idx:offset_idx],
+                    dura,
+                )
             # tmp_vel += [0.0] # add one to even out the length
-            tmp_angle += state['root_rot'].tolist()
+            tmp_angle += state["root_rot"].tolist()
             # print(len(tmp_vel), len(tmp_angle))
 
             for each_joint in BODY_JOINTS:
@@ -170,7 +193,14 @@ class MocapDM(object):
                     if k == 0:
                         tmp_vel += [0.0]
                     else:
-                        tmp_vel += ((self.data[k, init_idx:offset_idx] - self.data[k-1, init_idx:offset_idx])*1.0/dura).tolist()
+                        tmp_vel += (
+                            (
+                                self.data[k, init_idx:offset_idx]
+                                - self.data[k - 1, init_idx:offset_idx]
+                            )
+                            * 1.0
+                            / dura
+                        ).tolist()
                     tmp_angle += state[each_joint].tolist()
                 elif DOF_DEF[each_joint] == 3:
                     assert 4 == len(tmp_val)
@@ -179,10 +209,14 @@ class MocapDM(object):
                     if k == 0:
                         tmp_vel += [0.0, 0.0, 0.0]
                     else:
-                        tmp_vel += self.calc_rot_vel(self.data[k, init_idx:offset_idx], self.data[k-1, init_idx:offset_idx], dura)
+                        tmp_vel += self.calc_rot_vel(
+                            self.data[k, init_idx:offset_idx],
+                            self.data[k - 1, init_idx:offset_idx],
+                            dura,
+                        )
                     quat = state[each_joint]
                     quat = np.array([quat[1], quat[2], quat[3], quat[0]])
-                    euler_tuple = euler_from_quaternion(quat, axes='rxyz')
+                    euler_tuple = euler_from_quaternion(quat, axes="rxyz")
                     tmp_angle += list(euler_tuple)
                     ## For testing
                     # quat_after = quaternion_from_euler(euler_tuple[0], euler_tuple[1], euler_tuple[2], axes='rxyz')
@@ -194,12 +228,14 @@ class MocapDM(object):
                     #     print(diff)
                 # print(len(tmp_vel), len(tmp_angle))
             self.data_vel.append(np.array(tmp_vel))
+            if k == 0:
+                print("Tmp angle", tmp_angle, len(tmp_angle))
             self.data_config.append(np.array(tmp_angle))
 
     def play(self, mocap_filepath):
         from mujoco_py import load_model_from_xml, MjSim, MjViewer
 
-        xmlpath = '/home/kenji/Fyp/DeepMimic_mujoco/diffusion/assets/dp_env_v2.xml'
+        xmlpath = "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/assets/dp_env_v2.xml"
         with open(xmlpath) as fin:
             MODEL_XML = fin.read()
 
@@ -230,10 +266,24 @@ class MocapDM(object):
             phase_offset = sim_state.qpos[:3]
             phase_offset[2] = 0
 
+
 if __name__ == "__main__":
     test = MocapDM()
-    test.load_mocap("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_spinkick.txt")
-    print(test.frames_raw)
+    test.load_mocap(
+        "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_backflip.txt"
+    )
+    print(test.data_config[0])
+
+    # Set joints like its holding a box
+    elbow_val = 1.57
+    shoulder_val = [0.0] * 3
+    for config in test.data_config:
+        config[13:16] = shoulder_val
+        config[16] = elbow_val
+        config[17:20] = shoulder_val
+        config[20] = elbow_val
+
+    # print(test.frames_raw)
     # print(test.data_config[0].shape)
     # print(test.data_vel[0].shape)
     # test.play("/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_spinkick.txt")
@@ -241,6 +291,10 @@ if __name__ == "__main__":
     # print(len(test.all_states), len(test.all_states[0])) # 29 frames, 14 joints
     # print(test.data.shape) # (29 frames, 44 data points) - original data
     # test.data_config = np.array(test.data_config)
-    # print(test.data_config.shape) # (29 frames, 35 angles) 
+    # print(test.data_config.shape) # (29 frames, 35 angles)
     # test.data_vel = np.array(test.data_vel)
     # print(test.data_vel.shape) # (29 frames, 34 velocities)
+
+    from mocap_player import play_raw_mocap
+
+    play_raw_mocap(test.data_config)
