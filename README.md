@@ -1,9 +1,31 @@
 # DiffMimic
 
-This is Kenji's final year project with diffusion models. Project direction is not clear yet.
+This is Kenji's final year project with diffusion models.
+Research idea: If a model learns how to do something, it should be able to adapt its skills to different conditions.
 
-Code was originally forked from DeepMimic, I have since deleted all unused code.
-Main code to pay attention to is in the diffusion folder.
+Project's goal is to get a model to learn a motion and then see how the motion adapts to different conditions we set to the model (ie interacting with objects, moving along trajectories, changes in environment etc).
+
+In this repo, there is 
+1. Code to represent a mocap motion as a diffusion model sampling process   
+2. A way to apply constraints to the sampling process to alter the generated motion 
+
+## Examples
+### Example 1: Interacting with objects
+For example, we make a model learn a walking motion.
+https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/dd859e03-9e46-4336-8aab-e6df896bd932
+
+Then we give it a constraint that it will need to hold a box, it should still know how to walk with the box in hand.
+https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/03e0459a-4408-4f02-b830-2c00eab90f06
+
+### Example 2: Limiting use of joints
+For example, we make a model learn how to do a cartwheel
+https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/d0526f4b-bd6b-4b09-8183-36603a5745f8
+
+Will it be able to do an aerial if we limit its usage of its hands?
+https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/c19acca1-06fe-4624-be8d-9b783c065669
+
+### Limitations
+These mujoco simulations were not done under a physics simulator, so its not physically accurate, the main goal is just to check if we can make a model retain its learning of a skill under a different environment
 
 ## Quickstart
 
@@ -19,7 +41,7 @@ conda activate diffmimic
 
 ### Running the main motion generation code
 
-All the relevant code is kept within `temporal_unet_diffusion.ipynb`. I have left headers and comments in the notebook to explain what each cell does.
+All the relevant code is kept within `temporal_unet_diffusion.ipynb`. Headers and comments are left in the notebook to explain what each cell does.
 
 ### Loading motion datasets
 
@@ -37,18 +59,20 @@ eg: python3 mocap_player.py logs/walk-motion/sampled_motions/motion1.npy
 
 ### Sampled with constraints
 
-We can apply conditioning directly in the `models/sampling_config.py` file under the `apply_conditioning` function. Right now its just hardcoded to change the joint positions to look like the human model is holding a box. But essentially you can change these position tensors to anything you want.
+We can apply conditioning directly in the `models/sampling_config.py` file under the `apply_conditioning` function. 
+- There are 2 versions of the `apply_conditioning` function, one is the identity function and the other is the actual conditioning function. This is just an easy way to turn conditioning on and off.
+- Right now its just hardcoded to change the joint positions to look like the human model is holding a box. But essentially you can change these position tensors to anything you want.
 
 In the joint configs, index 13-15 and 17-19 are shoulders representing an euler tuple, 16 and 20 are elbows representing a scalar rotation value in radians. 
 
 ### Evaluating constrained sampling
 
-View original data
+View original motion data, all of the original motion mocaps are stored in the `diffusion/data/motions` directory. There is no CLI command to play the file, but you run the code in the following file to select a mocap and play it
 ```bash
 python3 utils/mocap_v2.py
 ```
 
-View sampled motion
+View sampled motion, all sampled motion are stored in the `diffusion/logs` directory, under `{experiment_name}/sampled_motions`. You can play these sampled motions using the following command
 ```bash
 python3 mocap_player.py logs/test-constrained-sampling-holding-a-box/sampled_motions/motion1.npy
 ```
