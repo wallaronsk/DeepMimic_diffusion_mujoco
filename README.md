@@ -12,16 +12,20 @@ In this repo, there is
 ## Examples
 ### Example 1: Interacting with objects
 For example, we make a model learn a walking motion.
+
 https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/dd859e03-9e46-4336-8aab-e6df896bd932
 
 Then we give it a constraint that it will need to hold a box, it should still know how to walk with the box in hand.
+
 https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/03e0459a-4408-4f02-b830-2c00eab90f06
 
 ### Example 2: Limiting use of joints
 For example, we make a model learn how to do a cartwheel
+
 https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/d0526f4b-bd6b-4b09-8183-36603a5745f8
 
 Will it be able to do an aerial if we limit its usage of its hands?
+
 https://github.com/agent-lab/DeepMimic_diffusion_mujoco/assets/56083944/c19acca1-06fe-4624-be8d-9b783c065669
 
 ### Limitations
