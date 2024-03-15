@@ -2,13 +2,21 @@ import torch
 
 from diffuser.models.helpers import (
     extract,
-    apply_conditioning,
 )
+from diffuser.models.sampling_config import apply_conditioning
 
 
 @torch.no_grad()
 def n_step_guided_p_sample(
-    model, x, cond, t, guide, scale=0.001, t_stopgrad=0, n_guide_steps=1, scale_grad_by_std=True,
+    model,
+    x,
+    cond,
+    t,
+    guide,
+    scale=0.001,
+    t_stopgrad=0,
+    n_guide_steps=1,
+    scale_grad_by_std=True,
 ):
     model_log_variance = extract(model.posterior_log_variance_clipped, t, x.shape)
     model_std = torch.exp(0.5 * model_log_variance)
