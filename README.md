@@ -37,7 +37,7 @@ eg: python3 mocap_player.py logs/walk-motion/sampled_motions/motion1.npy
 
 ### Sampled with constraints
 
-We can apply conditioning directly in the `models/helpers.py` file under the `apply_conditioning` function. Right now its just hardcoded to change the joint positions to look like the human model is holding a box. But essentially you can change these position tensors to anything you want.
+We can apply conditioning directly in the `models/sampling_config.py` file under the `apply_conditioning` function. Right now its just hardcoded to change the joint positions to look like the human model is holding a box. But essentially you can change these position tensors to anything you want.
 
 In the joint configs, index 13-15 and 17-19 are shoulders representing an euler tuple, 16 and 20 are elbows representing a scalar rotation value in radians. 
 
