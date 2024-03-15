@@ -21,7 +21,12 @@ class MotionDataset(Dataset):
         data_config = np.array(data_config)
         # size = data_config.shape[0]
         # data_config = np.concatenate([data_config, np.zeros(size).reshape(size, 1)], axis=1)
-        data_config = data_config[:32, :] # temporal unet needs size of power of 2
+
+        num_frames = data_config.shape[0]
+        if num_frames % 8 != 0: # temporal unet needs to be multiple of 8
+            num_frames -= (num_frames % 8) # adjust to be maximum multiple of 8
+
+        data_config = data_config[:num_frames, :]
 
         # for i in range(len(data_config)):
         #     prefix = data_config[i:]
