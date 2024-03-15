@@ -58,6 +58,7 @@ One key thing to mention about motion datasets, is that the number of frames we 
 
 ### Playing the generated motions
 
+There are a few experiments already under the `logs` directory.
 I have included a script to play the generated motions. To use it, run the following command:
 
 ```bash
