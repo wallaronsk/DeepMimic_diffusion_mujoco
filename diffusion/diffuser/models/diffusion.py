@@ -191,21 +191,28 @@ class GaussianDiffusion(nn.Module):
         verbose=True,
         return_chain=False,
         sample_fn=default_sample_fn,
+        conditioning_fn=apply_conditioning,
+        starting_motion: torch.Tensor=None,
+        max_timesteps: int=None,
         **sample_kwargs
     ):
         device = self.betas.device
 
         batch_size = shape[0]
-        x = torch.randn(shape, device=device)
-        x = apply_conditioning(x)
+        if starting_motion is not None:
+            x = starting_motion.to(device)
+        else:
+            x = torch.randn(shape, device=device)
+        x = conditioning_fn(x)
 
         chain = [x] if return_chain else None
 
-        progress = utils.Progress(self.n_timesteps) if verbose else utils.Silent()
-        for i in reversed(range(0, self.n_timesteps)):
+        timesteps = self.n_timesteps if max_timesteps is None else max_timesteps
+        progress = utils.Progress(timesteps) if verbose else utils.Silent()
+        for i in reversed(range(0, timesteps)):
             t = make_timesteps(batch_size, i, device)
             x, values = sample_fn(self, x, cond, t, **sample_kwargs)
-            x = apply_conditioning(x)
+            x = conditioning_fn(x)
 
             progress.update(
                 {"t": i, "vmin": values.min().item(), "vmax": values.max().item()}
