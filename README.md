@@ -3,12 +3,21 @@
 This is Kenji's final year project with diffusion models.
 Research idea: If a model learns how to do something, it should be able to adapt its skills to different conditions.
 
-Project's goal is to get a model to learn a motion and then see how the motion adapts to different conditions we set to the model (ie interacting with objects, moving along trajectories, changes in environment etc).
+The project's goal is to get a model to learn a motion and then see how the motion adapts to different conditions we set to the model (ie interacting with objects, moving along trajectories, changes in environment etc).
 
 In this repo, there is
 
-1. Code to represent a mocap motion as a diffusion model sampling process
-2. A way to apply constraints to the sampling process to alter the generated motion
+1. Code for different architectures to turn a mocap motion as a diffusion model sampling process
+   1. Vanilla DDPM with 1D diffusion (in the main branch)
+   2. MDM (in the mdm branch)
+   3. Diffuser (in the main branch)
+2. A way to apply constraints to the sampling process to alter the generated motion. A collection of notebooks showcasing different applications of motion diffusion models have been preparred
+   1. `0_temporal_unet_diffusion.ipynb` - The base motion generation code
+   2. `1_motion_editing.ipynb` - A notebook experimenting with editing the motion by changing the joint positions
+   3. `2_starting_with_motion.ipynb` - A notebook experimenting with starting the sampling process with a motion instead of random noise
+   4. `3_long_projection.ipynb` - A notebook experimenting with sampling with containing more frames than what the model was trained on
+   5. `4_motion_inbetweening.ipynb` - A notebook experimenting with inbetweening between two motions using the inbetween way
+   6. `5_motion_blending.ipynb` - A notebook experimenting with blending between transition of two motions using the blending way
 
 ## Examples
 
@@ -38,7 +47,16 @@ These mujoco simulations were not done under a physics simulator, so its not phy
 
 ## Quickstart
 
-### Setup
+### Vanilla DDPM Setup
+This library clashes with the other packages for the 
+```bash
+pip install denoising_diffusion_pytorch
+```
+
+### MDM Setup
+The setup instructions are exactly the same as described in the MDM repository for the environment and packages. See the MDM branch for more details
+
+### Diffuser Setup
 
 Setup the conda environment with the following command:
 
