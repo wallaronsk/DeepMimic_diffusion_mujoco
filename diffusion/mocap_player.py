@@ -49,8 +49,8 @@ def play_mocap_np_file(mocap_filepath):
 
     # Load the mocap
     mocap = np.load(mocap_filepath)
-    print(mocap.shape)
-    print(mocap[0])
+    # print(mocap.shape)
+    # print(mocap[0])
     from time import sleep
 
     phase_offset = np.array([0.0, 0.0, 0.0])
@@ -62,6 +62,7 @@ def play_mocap_np_file(mocap_filepath):
 
     # vid_save = VideoSaver(width=width, height=height)
     while True:
+        print(mocap.shape)
         # for i in range(5):
         for config in mocap:
             tmp_val = config
