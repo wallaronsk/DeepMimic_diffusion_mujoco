@@ -6,7 +6,7 @@ import copy
 import numpy as np
 from os import getcwd
 from pyquaternion import Quaternion
-from diffusion.utils.mocap_util import (
+from utils.mocap_util import (
     align_position,
     align_rotation,
     BODY_JOINTS,
@@ -14,7 +14,7 @@ from diffusion.utils.mocap_util import (
     DOF_DEF,
     BODY_DEFS,
 )
-from diffusion.utils.transformations import euler_from_quaternion, quaternion_from_euler
+from utils.transformations import euler_from_quaternion, quaternion_from_euler
 
 
 class MocapDM(object):

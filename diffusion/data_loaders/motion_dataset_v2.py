@@ -1,7 +1,7 @@
 import os
 import torch
 from torch.utils.data import Dataset
-from diffusion.utils.mocap_v2 import MocapDM
+from utils.mocap_v2 import MocapDM
 import numpy as np
 from collections import namedtuple
 
@@ -73,4 +73,4 @@ if __name__ == "__main__":
     dataset = MotionDataset(
         "/home/kenji/Fyp/DeepMimic_mujoco/diffusion/data/motions/humanoid3d_walk.txt"
     )
-    print(dataset[0], dataset[0].trajectories.shape)
+    # print(dataset[0], dataset[0].trajectories.shape)
