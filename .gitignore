@@ -1,2 +1,9 @@
 */**/__pycache__
 logs/
+mlflow/
+diffusion/mlruns/*
+diffusion/logs/*
+motion-diffusion-model/
+test-motion-diffusion/
+diffusion/logs/*
+diffusion/mlruns/*
