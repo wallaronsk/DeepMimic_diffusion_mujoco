@@ -10,8 +10,8 @@ from data_loaders.motion_dataset_v2 import MotionDataset
 
 def train_with_timesteps(n_timesteps):
     # MLflow setup
-    experiment_name = f"transformer_diffusion_{n_timesteps}_steps"  # Simplified name
-    experiment_name += "_256_4_8_0.15"
+    experiment_name = f"transformer_diffusion_{n_timesteps}_steps"
+    experiment_name += "_512_2_8_optimized"  # Updated name to reflect optimized config
     run_name = f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     # Check if experiment exists, if not create it
@@ -24,21 +24,23 @@ def train_with_timesteps(n_timesteps):
     
     with mlflow.start_run(run_name=run_name):
         print(f"\n{'='*50}")
-        print(f"Starting training with {n_timesteps} diffusion timesteps")
+        print(f"Starting training with {n_timesteps} diffusion steps")
         print(f"{'='*50}\n")
         
-        # Log parameters
+        # Updated parameters based on tuning results
         params = {
-            "model_dim": 512,
-            "n_heads": 4,
-            "n_layers": 8,
-            "dropout": 0.15,
-            "n_timesteps": n_timesteps,  # Number of diffusion steps
-            "batch_size": 2,
-            "learning_rate": 1e-4,  # Updated according to suggestions
-            "ema_decay": 0.995,
-            "mask_ratio": 0.05,
-            "total_steps": 100000
+            "model_dim": 512,          # Keeping this at 512 as it wasn't in the analysis
+            "n_heads": 2,              # Best performing value
+            "n_layers": 8,             # Best performing value
+            "dropout": 0.15,           # Keeping original value as it wasn't varied
+            "n_timesteps": n_timesteps,
+            "batch_size": 32,          # Best performing value
+            "learning_rate": 1e-4,     # Best performing value
+            "ema_decay": 0.995,        # Keeping original value
+            "mask_ratio": 0.05,        # Best performing value
+            "warmup_steps": 10000,       # From tuning
+            "total_steps": 100000,     # Keeping original value for full training
+            "smooth_loss_weight": 0.1   # Best performing value
         }
         mlflow.log_params(params)
         
@@ -49,9 +51,11 @@ def train_with_timesteps(n_timesteps):
         horizon = dataset[0].trajectories.shape[0]
         transition_dim = dataset[0].trajectories.shape[1]
 
-        print(f"\nStarting training with {n_timesteps} diffusion timesteps")
+        print(f"\nStarting training with optimized configuration:")
         print("horizon: ", horizon)
         print("transition_dim: ", transition_dim)
+        for k, v in params.items():
+            print(f"{k}: {v}")
         
         # Log dataset info
         mlflow.log_params({
@@ -59,7 +63,7 @@ def train_with_timesteps(n_timesteps):
             "state_dimension": transition_dim
         })
         
-        # Create model
+        # Create model with optimized parameters
         model = TransformerMotionModel(
             horizon=horizon,
             transition_dim=transition_dim,
@@ -68,14 +72,15 @@ def train_with_timesteps(n_timesteps):
             num_layers=params["n_layers"],
             dropout=params["dropout"],
             n_timesteps=params["n_timesteps"],
-            beta_schedule='linear'
+            beta_schedule='linear',
+            smooth_loss_weight=params["smooth_loss_weight"]
         ).cuda()
         
         # Print model architecture and number of parameters
         print(model)
         print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
 
-        # Create trainer
+        # Create trainer with optimized parameters
         trainer = TransformerTrainer(
             diffusion_model=model,
             dataset=dataset,
@@ -83,7 +88,8 @@ def train_with_timesteps(n_timesteps):
             mask_ratio=params["mask_ratio"],
             train_batch_size=params["batch_size"],
             train_lr=params["learning_rate"],
-            results_folder=f'./logs/transformer_walk_{n_timesteps}_steps',
+            warmup_steps=params["warmup_steps"],
+            results_folder=f'./logs/transformer_walk_{n_timesteps}_steps_optimized',
             mlflow_run=mlflow.active_run()
         )
         

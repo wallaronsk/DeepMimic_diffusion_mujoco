@@ -1,0 +1,127 @@
+=== Top 5 Hyperparameter Configurations ===
+
+Rank 12
+Parameters:
+batch_size: 2
+total_steps: 10000
+n_timesteps: 1000
+beta_schedule: linear
+dropout: 0.15
+sequence_length: 32
+model_dim: 256
+warmup_steps: 500
+smooth_loss_weight: 0.1
+n_heads: 4
+ema_decay: 0.995
+learning_rate: 0.0001
+mask_ratio: 0.0
+n_layers: 4
+state_dimension: 69
+
+Metrics:
+Total Loss   : 0.122154
+Angle Loss   : 0.101867
+Velocity Loss: 0.202874
+
+==================================================
+
+Rank 40
+Parameters:
+batch_size: 2
+total_steps: 10000
+n_timesteps: 1000
+beta_schedule: linear
+dropout: 0.15
+sequence_length: 32
+model_dim: 256
+warmup_steps: 500
+smooth_loss_weight: 0.1
+n_heads: 2
+ema_decay: 0.995
+learning_rate: 0.0001
+mask_ratio: 0.05
+n_layers: 4
+state_dimension: 69
+
+Metrics:
+Total Loss   : 0.721364
+Angle Loss   : 0.606450
+Velocity Loss: 1.149135
+
+==================================================
+
+Rank 46
+Parameters:
+batch_size: 2
+total_steps: 10000
+n_timesteps: 1000
+beta_schedule: linear
+dropout: 0.15
+sequence_length: 32
+model_dim: 256
+warmup_steps: None
+smooth_loss_weight: 0.1
+n_heads: 2
+ema_decay: 0.995
+learning_rate: 0.0001
+mask_ratio: 0.0
+n_layers: 4
+state_dimension: 69
+
+Metrics:
+Total Loss   : 0.793358
+Angle Loss   : 0.668354
+Velocity Loss: 1.250037
+
+==================================================
+
+Rank 45
+Parameters:
+batch_size: 2
+total_steps: 10000
+n_timesteps: 1000
+beta_schedule: linear
+dropout: 0.15
+sequence_length: 32
+model_dim: 256
+warmup_steps: 500
+smooth_loss_weight: 0.1
+n_heads: 2
+ema_decay: 0.995
+learning_rate: 0.0001
+mask_ratio: 0.0
+n_layers: 4
+state_dimension: 69
+
+Metrics:
+Total Loss   : 0.794071
+Angle Loss   : 0.670941
+Velocity Loss: 1.231297
+
+==================================================
+
+Rank 38
+Parameters:
+batch_size: 2
+total_steps: 10000
+n_timesteps: 1000
+beta_schedule: linear
+dropout: 0.15
+sequence_length: 32
+model_dim: 256
+warmup_steps: 500
+smooth_loss_weight: 0.2
+n_heads: 2
+ema_decay: 0.995
+learning_rate: 0.0001
+mask_ratio: 0.05
+n_layers: 4
+state_dimension: 69
+
+Metrics:
+Total Loss   : 1.490586
+Angle Loss   : 1.100751
+Velocity Loss: 1.949176
+
+==================================================
+

@@ -36,7 +36,9 @@ class TransformerTrainer:
         results_folder='./results',
         ema_decay=0.995,
         mask_ratio=0.15,
-        mlflow_run=None
+        mlflow_run=None,
+        is_tuning=False,
+        warmup_steps=10000
     ):
         self.model = diffusion_model
         self.dataset = dataset
@@ -44,7 +46,7 @@ class TransformerTrainer:
         self.log_freq = log_freq
         self.results_folder = results_folder
         self.mask_ratio = mask_ratio
-        
+        self.is_tuning = is_tuning
         # Create EMA model
         self.ema = EMA(beta=ema_decay)
         self.ema_model = copy.deepcopy(self.model)
@@ -68,7 +70,7 @@ class TransformerTrainer:
         )
         
         # --- New: Set up learning rate warmup parameters ---
-        self.warmup_steps = 10000
+        self.warmup_steps = warmup_steps
         self.lr_scheduler = None  # Will be initialized in train()
         
         self.step = 0
@@ -196,7 +198,7 @@ class TransformerTrainer:
         
         # Debug: print model devices and current memory usage before training
         if self.step == 0:
-            self.debug_model_devices()
+            # self.debug_model_devices()
             self.debug_memory_usage()
         
         # Calculate checkpoint steps at the start
@@ -262,7 +264,7 @@ class TransformerTrainer:
                 grad_norm=grad_norm.item(),
                 lr=current_lr
             )
-            
+             
             # Console logging
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
@@ -271,7 +273,7 @@ class TransformerTrainer:
                 self.debug_memory_usage()
             
             # Save checkpoint if current step is in checkpoint_steps
-            if step in checkpoint_steps:
+            if step in checkpoint_steps and not self.is_tuning:
                 self.save()
                 # Log model checkpoint to MLflow
                 if self.mlflow_run:
