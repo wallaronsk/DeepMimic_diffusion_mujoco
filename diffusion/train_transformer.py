@@ -1,115 +1,209 @@
+from diffuser.models.transformer_temporal import TransformerMotionModel
+from diffuser.models.diffusion_v4 import DiffusionV4
+import torch.optim as optim
+from data_loaders.motion_dataset_v2 import MotionDataset
+from torch.utils.data import DataLoader
+from itertools import cycle
 import torch
 import os
-import sys
-import mlflow
-from datetime import datetime
+import logging
+from typing import Dict, Any, Optional
 
-from diffuser.models.transformer_temporal_new import TransformerMotionModel
-from diffuser.utils.transformer_training import TransformerTrainer
-from data_loaders.motion_dataset_v2 import MotionDataset
 
-def train_with_timesteps(n_timesteps):
-    # MLflow setup
-    experiment_name = f"transformer_diffusion_{n_timesteps}_steps"
-    experiment_name += "_512_2_8_optimized"  # Updated name to reflect optimized config
-    run_name = f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+class DiffusionTrainer:
+    """
+    A trainer class for diffusion models on motion data.
+    """
+    def __init__(
+        self,
+        dataset_path: str,
+        model_config: Dict[str, Any],
+        diffusion_config: Dict[str, Any],
+        training_config: Dict[str, Any],
+        optimizer_config: Dict[str, Any],
+        save_path: str,
+    ):
+        """
+        Initialize the trainer with configurations.
+        
+        Args:
+            dataset_path: Path to the motion dataset
+            model_config: Configuration for the transformer model
+            diffusion_config: Configuration for the diffusion model
+            training_config: Configuration for training (batch size, steps, etc.)
+            optimizer_config: Configuration for the optimizer
+            save_path: Path to save trained models
+        """
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logging.info(f"Using device: {self.device}")
+        
+        # Set up dataset and dataloader
+        self.dataset = MotionDataset(dataset_path)
+        self.batch_size = training_config.get("batch_size", 4)
+        self.dataloader = self._create_dataloader()
+        
+        # Set up model
+        self.model = self._create_model(model_config)
+        
+        # Set up diffusion
+        self.diffusion = self._create_diffusion(diffusion_config)
+        
+        # Set up optimizer
+        self.optimizer = self._create_optimizer(optimizer_config)
+        
+        # Training settings
+        self.num_train_steps = training_config.get("num_train_steps", 1000)
+        self.log_interval = training_config.get("log_interval", 100)
+        
+        # Save settings
+        self.save_path = save_path
+        self.save_interval = training_config.get("save_interval", self.num_train_steps)
+        
+        # Create save directory if it doesn't exist
+        if not os.path.exists(self.save_path):
+            os.makedirs(self.save_path)
     
-    # Check if experiment exists, if not create it
-    try:
-        mlflow.create_experiment(experiment_name)
-    except Exception:
-        pass
+    def _create_dataloader(self):
+        """Create a cyclic dataloader from the dataset."""
+        return cycle(DataLoader(
+            self.dataset,
+            batch_size=self.batch_size,
+            num_workers=1,
+            shuffle=True,
+            pin_memory=True
+        ))
     
-    mlflow.set_experiment(experiment_name)
-    
-    with mlflow.start_run(run_name=run_name):
-        print(f"\n{'='*50}")
-        print(f"Starting training with {n_timesteps} diffusion steps")
-        print(f"{'='*50}\n")
-        
-        # Updated parameters based on tuning results
-        params = {
-            "model_dim": 512,          # Keeping this at 512 as it wasn't in the analysis
-            "n_heads": 2,              # Best performing value
-            "n_layers": 8,             # Best performing value
-            "dropout": 0.15,           # Keeping original value as it wasn't varied
-            "n_timesteps": n_timesteps,
-            "batch_size": 32,          # Best performing value
-            "learning_rate": 1e-4,     # Best performing value
-            "ema_decay": 0.995,        # Keeping original value
-            "mask_ratio": 0.05,        # Best performing value
-            "warmup_steps": 10000,       # From tuning
-            "total_steps": 100000,     # Keeping original value for full training
-            "smooth_loss_weight": 0.1   # Best performing value
-        }
-        mlflow.log_params(params)
-        
-        # Dataset setup
-        dataset = MotionDataset("data/motions/humanoid3d_walk.txt", shuffle=True)
-        
-        # Model parameters
-        horizon = dataset[0].trajectories.shape[0]
-        transition_dim = dataset[0].trajectories.shape[1]
-
-        print(f"\nStarting training with optimized configuration:")
-        print("horizon: ", horizon)
-        print("transition_dim: ", transition_dim)
-        for k, v in params.items():
-            print(f"{k}: {v}")
-        
-        # Log dataset info
-        mlflow.log_params({
-            "sequence_length": horizon,
-            "state_dimension": transition_dim
-        })
-        
-        # Create model with optimized parameters
+    def _create_model(self, config: Dict[str, Any]):
+        """Create and initialize the transformer model."""
         model = TransformerMotionModel(
-            horizon=horizon,
-            transition_dim=transition_dim,
-            dim=params["model_dim"],
-            nhead=params["n_heads"],
-            num_layers=params["n_layers"],
-            dropout=params["dropout"],
-            n_timesteps=params["n_timesteps"],
-            beta_schedule='linear',
-            smooth_loss_weight=params["smooth_loss_weight"]
-        ).cuda()
+            input_dim=self.dataset[0].trajectories.shape[1],
+            latent_dim=config.get("latent_dim", 256),
+            n_heads=config.get("n_heads", 4),
+            num_layers=config.get("num_layers", 8),
+            dropout=config.get("dropout", 0.1),
+            ff_size=config.get("ff_size", 1024)
+        ).to(self.device)
         
-        # Print model architecture and number of parameters
-        print(model)
-        print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
-
-        # Create trainer with optimized parameters
-        trainer = TransformerTrainer(
-            diffusion_model=model,
-            dataset=dataset,
-            ema_decay=params["ema_decay"],
-            mask_ratio=params["mask_ratio"],
-            train_batch_size=params["batch_size"],
-            train_lr=params["learning_rate"],
-            warmup_steps=params["warmup_steps"],
-            results_folder=f'./logs/transformer_walk_{n_timesteps}_steps_optimized',
-            mlflow_run=mlflow.active_run()
+        # Load pretrained weights if provided
+        if "pretrained_path" in config and config["pretrained_path"]:
+            model.load_state_dict(torch.load(config["pretrained_path"]))
+            logging.info(f"Loaded pretrained model from {config['pretrained_path']}")
+            
+        return model
+    
+    def _create_diffusion(self, config: Dict[str, Any]):
+        """Create the diffusion model."""
+        return DiffusionV4(
+            noise_steps=config.get("noise_steps", 50),
+            beta_start=config.get("beta_start", 0.0001),
+            beta_end=config.get("beta_end", 0.02),
+            joint_dim=self.dataset[0].trajectories.shape[1],
+            frames=self.dataset[0].trajectories.shape[0],
+            device=self.device,
+            predict_x0=config.get("predict_x0", False)
         )
+    
+    def _create_optimizer(self, config: Dict[str, Any]):
+        """Create the optimizer for the model."""
+        return optim.AdamW(
+            self.model.parameters(),
+            lr=config.get("lr", 0.001),
+            weight_decay=config.get("weight_decay", 0.0001),
+            eps=config.get("eps", 1e-8)
+        )
+    
+    def train(self):
+        """Execute the training loop."""
+        self.model.to(self.device)  # Ensure model is on the correct device
         
-        # Train the model
-        trainer.train(n_train_steps=params["total_steps"])
-
-def main():
-    # Enable CuDNN benchmark for potential speed improvements on fixed-size inputs
-    if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = True
-
-    # MLflow setup
-    mlflow.set_tracking_uri("file:./mlruns")
+        for step in range(self.num_train_steps):
+            # Get batch and move to device
+            batch = next(self.dataloader)
+            x_start = batch.trajectories.to(self.device)
+            
+            # Print shape information on first step
+            if step == 0:
+                logging.info(f"Input shape: {x_start.shape}")
+            
+            # Sample timesteps and compute loss
+            t = self.diffusion.sample_timesteps(x_start.shape[0])
+            loss = self.diffusion.training_loss(self.model, x_start, t)
+            
+            # Optimization step
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            
+            # Logging
+            if step % self.log_interval == 0:
+                logging.info(f"Step {step}/{self.num_train_steps} | Loss: {loss.item():.6f}")
+            
+            # Save checkpoint
+            if (step + 1) % self.save_interval == 0 or step == self.num_train_steps - 1:
+                self._save_checkpoint(step + 1)
     
-    # Different numbers of timesteps to try
-    timesteps_to_try = [1000]
+    def _save_checkpoint(self, step: int):
+        """Save a model checkpoint."""
+        checkpoint_path = os.path.join(
+            self.save_path, 
+            f"model_step_{step}_noise_{self.diffusion.noise_steps}.pth"
+        )
+        torch.save(self.model.state_dict(), checkpoint_path)
+        logging.info(f"Saved checkpoint to {checkpoint_path}")
     
-    for n_timesteps in timesteps_to_try:
-        train_with_timesteps(n_timesteps)
-        torch.cuda.empty_cache()  # Clear GPU memory between runs
+    def generate_samples(self, num_samples: int = 1):
+        """Generate samples from the trained model."""
+        self.model.eval()
+        samples = self.diffusion.sample(self.model, num_samples)
+        return samples
 
-if __name__ == '__main__':
-    main() 
+
+if __name__ == "__main__":
+    # Set up logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    # Configuration
+    model_config = {
+        "latent_dim": 256,
+        "n_heads": 4,
+        "num_layers": 8,
+        "dropout": 0.1,
+        "ff_size": 1024,
+        "pretrained_path": None  # Optional path to pretrained weights
+    }
+    
+    diffusion_config = {
+        "noise_steps": 50,
+        "beta_start": 0.0001,
+        "beta_end": 0.02,
+        "predict_x0": True
+    }
+    
+    training_config = {
+        "batch_size": 4,
+        "num_train_steps": 100,
+        "log_interval": 10,
+        "save_interval": 100
+    }
+    
+    optimizer_config = {
+        "lr": 0.001,
+        "weight_decay": 0.0001,
+        "eps": 1e-8
+    }
+    
+    # Create trainer
+    trainer = DiffusionTrainer(
+        dataset_path="data/motions/humanoid3d_walk.txt",
+        model_config=model_config,
+        diffusion_config=diffusion_config,
+        training_config=training_config,
+        optimizer_config=optimizer_config,
+        save_path="models/transformer_motion_model"
+    )
+    
+    # Run training
+    trainer.train()

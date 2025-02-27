@@ -1,90 +1,47 @@
-import os
-import sys
 import torch
+from diffuser.models.transformer_temporal import TransformerMotionModel
+from diffuser.models.diffusion_v4 import DiffusionV4
+from data_loaders.motion_dataset_v2 import MotionDataset
+import os
 import numpy as np
-from collections import namedtuple
 
-from diffuser.models.transformer_temporal_new import TransformerMotionModel
-from data_loaders.motion_dataset_v2 import MotionDataset, Batch
-from diffuser.utils.transformer_training import TransformerTrainer
+def inference(model, diffusion, device, num_samples):
+    model.eval()
+    with torch.no_grad():
+        x = diffusion.sample(model, num_samples)
 
-# Setup paths and device
-n_timesteps = 1000
+    return x
 
-training_steps = 100000
-exp_name = f"transformer_walk_{n_timesteps}_steps"
-savepath = f'logs/{exp_name}'
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+dataset = MotionDataset("data/motions/humanoid3d_walk.txt")
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # find the latest model
+    model_path = "models/model_1000.pth"
+    if not os.path.exists(model_path):
+        print("Model not found, training...")
+        train_transformer()
+    else:
+        print("Model found, loading...")
+        model = torch.load(model_path)
+        model.to(device)
+    joint_dim = dataset[0].trajectories.shape[1]
+    frames = dataset[0].trajectories.shape[0]
+    diffusion = DiffusionV4(noise_steps=50, beta_start=0.0001, beta_end=0.02, joint_dim=joint_dim, frames=frames, device=device, predict_x0=True)
+    x = inference(model, diffusion, device, 1)
+    print(x.shape)
 
-def load_checkpoint(model, checkpoint_path):
-    """Load model from checkpoint"""
-    print(f"Loading checkpoint from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path)
-    model.load_state_dict(checkpoint['model'])
-    print("Model loaded")
-    print("Model number of parameters: {:,}".format(sum(p.numel() for p in model.parameters())))
-    return model
+first_x = x[0]
 
-def save_motion(motion_data, output_dir, filename="motion.npy"):
-    """Save motion data to numpy file"""
+# save the motion
+def save_motions(sample, output_dir, filename="motion.npy"):
     filepath = os.path.join(output_dir, filename)
-    # Extract position data (first 35 dimensions)
-    pos_data = motion_data[:, :35]
-    # Flip signs for visualization compatibility
-    pos_data[:, :2] = -pos_data[:, :2]
-    pos_data[:, 4:8] = -pos_data[:, 4:8]
-    
-    # Reverse the order along the time (sequence) dimension
-    pos_data = torch.flip(pos_data, dims=[0])
-    
-    pos_data = pos_data.cpu().numpy()
+    # create filepath if not exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    pos_data = sample[:, :35]
+    pos_data = pos_data.squeeze(0).cpu().numpy()
     np.save(filepath, pos_data)
     print(f"Motion saved as {filename}")
 
-def main():
-    # Setup cudnn benchmark for performance if using GPU
-    if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = True
-
-    # Load dataset to get dimensions
-    dataset = MotionDataset("data/motions/humanoid3d_walk.txt", shuffle=True)
-    horizon = dataset[0].trajectories.shape[0]
-    transition_dim = dataset[0].trajectories.shape[1]
-
-    # Create model with same config as training
-    model = TransformerMotionModel(
-        horizon=horizon,
-        transition_dim=transition_dim,
-        dim=512,
-        nhead=4,
-        num_layers=8,
-        dropout=0.1,
-        n_timesteps=n_timesteps
-    ).to(device)
-
-    # Load latest checkpoint
-    checkpoint_path = os.path.join(savepath, f'state_{training_steps - 1}.pt')
-    model = load_checkpoint(model, checkpoint_path)
-    model.eval()
-
-    # Generate samples
-    with torch.no_grad():
-        print("Generating sample...")
-        # Use AMP autocast (only when using GPU) for maximum throughput.
-        with torch.cuda.amp.autocast(enabled=(device != 'cpu')):
-            # Generate sample without conditioning
-            sample = model.sample(
-                batch_size=1,
-                horizon=horizon,
-                device=device
-            )
-        
-        # Save the generated motion
-        save_motion(
-            sample.squeeze(0),
-            savepath,
-            filename="generated_motion.npy"
-        )
-
-if __name__ == "__main__":
-    main() 
+savepath = "testoutput"
+save_motions(first_x, f"{savepath}/sampled_motions", filename="base-motion2.npy")
