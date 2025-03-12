@@ -10,9 +10,16 @@ Batch = namedtuple("Batch", "trajectories conditions")
 
 
 class MotionDataset(Dataset):
-    def __init__(self, motion_src_path, shuffle=False):
+    def __init__(self, motion_src_path, shuffle=False, data_type='both', model_type=''):
+        """
+        Args:
+            motion_src_path: Path to the motion capture file
+            shuffle: Whether to shuffle the data
+            data_type: Type of data to use - 'positions', 'velocities', or 'both'
+        """
         self.motion_data = []
         self.mocap_dm = MocapDM()
+        self.data_type = data_type
 
         self.mocap_dm.load_mocap(filepath=motion_src_path)
 
@@ -30,7 +37,14 @@ class MotionDataset(Dataset):
 
         data_config = data_config[:num_frames, :]
         data_vel = data_vel[:num_frames, :]
-        combined = np.concatenate([data_config, data_vel], axis=1)
+        
+        # Select data based on data_type
+        if data_type == 'positions':
+            combined = data_config
+        elif data_type == 'velocities':
+            combined = data_vel
+        else:  # 'both'
+            combined = np.concatenate([data_config, data_vel], axis=1)
 
         if shuffle:
             diff = combined[-1] - combined[0]
@@ -49,7 +63,7 @@ class MotionDataset(Dataset):
                 motion = torch.cat([prefix, suffix], dim=0)
                 self.motion_data.append(motion)
         else:
-            for _ in range(100):
+            for _ in range(1000):
                 self.motion_data.append(torch.from_numpy(combined).float())
 
         self.motion_data = torch.stack(self.motion_data)

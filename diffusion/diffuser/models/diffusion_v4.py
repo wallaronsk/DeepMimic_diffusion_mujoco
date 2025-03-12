@@ -1,9 +1,12 @@
 import torch
 from tqdm import tqdm
 import torch.nn as nn
+import math
+
 
 class DiffusionV4:
-    def __init__(self, noise_steps, beta_start, beta_end, joint_dim, frames, device="cuda", predict_x0=False):
+    def __init__(self, noise_steps, beta_start, beta_end, joint_dim, frames, device="cuda", predict_x0=False, 
+                 schedule_type="linear", cosine_s=0.008):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
         self.beta_end = beta_end
@@ -11,12 +14,52 @@ class DiffusionV4:
         self.frames = frames
         self.device = device
         self.predict_x0 = predict_x0
+
+        # Noise schedule parameters
+        self.schedule_type = schedule_type
+        self.cosine_s = cosine_s
+        # Data type parameter
         self.beta = self.prepare_noise_schedule().to(device)
         self.alpha = 1. - self.beta
         self.alpha_hat = torch.cumprod(self.alpha, dim=0)
 
     def prepare_noise_schedule(self):
-        return torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
+        if self.schedule_type == "linear":
+            # Linear noise schedule (original implementation)
+            return torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
+        elif self.schedule_type == "cosine":
+            # Cosine noise schedule (often better for image/motion generation)
+            # Implementation based on improved DDPM paper
+            steps = self.noise_steps + 1
+            x = torch.linspace(0, self.noise_steps, steps)
+            alphas_cumprod = torch.cos(((x / self.noise_steps) + self.cosine_s) / (1 + self.cosine_s) * math.pi * 0.5) ** 2
+            alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+            betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+            
+            # Clamp the betas to be in [beta_start, beta_end]
+            return torch.clip(betas, self.beta_start, self.beta_end)
+        else:
+            raise ValueError(f"Unknown schedule type: {self.schedule_type}. Use 'linear' or 'cosine'.")
+    
+    def q_sample(self, x_start, t, noise=None):
+        """
+        Forward diffusion process: q(x_t | x_0)
+        
+        Args:
+            x_start: The clean data at t=0
+            t: The timesteps to diffuse to
+            noise: Optional pre-generated noise (if None, will generate noise)
+            
+        Returns:
+            The noisy data at timestep t
+        """
+        if noise is None:
+            noise = torch.randn_like(x_start, device=x_start.device)
+            
+        sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None]
+        sqrt_one_minus_alpha_hat = torch.sqrt(1. - self.alpha_hat[t])[:, None, None]
+        
+        return sqrt_alpha_hat * x_start + sqrt_one_minus_alpha_hat * noise
         
     def noise_sequence(self, x, t):
         """
@@ -36,18 +79,24 @@ class DiffusionV4:
     def sample_timesteps(self, batch_size):
         return torch.randint(0, self.noise_steps, (batch_size,), device=self.device)
     
-    def sample(self, model, n):
+    def sample(self, model, n, custom_frames=None, condition=None):
         """
         Sample n samples from the model, using the reverse diffusion process
         
         Args:
             model: The model to sample from
             n: Number of samples to generate
-            predict_x0: If True, assumes model predicts clean motion x0. If False, assumes model predicts noise.
+            custom_frames: Optional custom number of frames to generate (default: self.frames)
+            condition: Optional condition to sample from
         """
         model.eval()
         with torch.no_grad():
-            x = torch.randn((n, self.frames, self.joint_dim), device=self.device)
+            # Use custom_frames if provided, otherwise use the default frames
+            frames_to_generate = custom_frames if custom_frames is not None else self.frames
+            
+            # Generate samples with the appropriate dimension based on data_type
+            x = torch.randn((n, frames_to_generate, self.joint_dim), device=self.device)
+            
             for i in reversed(range(1, self.noise_steps)):
                 t = (torch.ones(n, device=self.device) * i).long()
                 
@@ -83,34 +132,43 @@ class DiffusionV4:
 
     def training_loss(self, model, x_start, t):
         """
-        Compute the training loss for the model at one timestep
+        Calculate the training loss for the diffusion model.
         
         Args:
-            model: The model to train
-            x_start: The clean motion data
-            t: The timesteps
+            model: The model to compute predictions
+            x_start: Starting clean data [batch_size, sequence_length, feature_dim]
+            t: Timesteps for diffusion process [batch_size]
+            
+        Returns:
+            Loss value
         """
-        x_start = x_start.to(self.device)
-        t = t.to(self.device)
+        # Sample noise
+        noise = torch.randn_like(x_start)
         
-        x_noisy, noise = self.noise_sequence(x_start, t)
+        # Get noisy samples at timesteps t
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         
+        # Get model predictions (either predict_noise or predict_x0)
         if self.predict_x0:
-            # Model predicts the clean motion x0
+            # Model predicts x0 directly
             predicted_x0 = model(x_noisy, t)
             
-            # Calculate the target x0 from the noisy sample and the actual noise
-            sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None]
-            sqrt_one_minus_alpha_hat = torch.sqrt(1. - self.alpha_hat[t])[:, None, None]
+            # Calculate noise from predicted x0 for loss
+            alpha_hat = self.alpha_hat[t].view(-1, 1, 1)
+            beta_hat = 1 - alpha_hat
             
-            # x0 = (x_noisy - sqrt_one_minus_alpha_hat * noise) / sqrt_alpha_hat
-            target_x0 = (x_noisy - sqrt_one_minus_alpha_hat * noise) / sqrt_alpha_hat
-            
-            loss = nn.functional.mse_loss(predicted_x0, target_x0)
+            predicted_noise = (x_noisy - torch.sqrt(alpha_hat) * predicted_x0) / torch.sqrt(beta_hat)
         else:
-            # Model predicts the noise (original behavior)
+            # Model predicts noise directly
             predicted_noise = model(x_noisy, t)
-            loss = nn.functional.mse_loss(predicted_noise, noise)
             
+            # For motion losses, we need x0 too
+            alpha_hat = self.alpha_hat[t].view(-1, 1, 1)
+            beta_hat = 1 - alpha_hat
+            predicted_x0 = (x_noisy - torch.sqrt(beta_hat) * predicted_noise) / torch.sqrt(alpha_hat)
+        
+        
+        loss = nn.functional.mse_loss(predicted_noise, noise)
+    
         return loss
 
