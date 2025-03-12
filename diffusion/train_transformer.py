@@ -1,5 +1,5 @@
 from diffuser.models.transformer_temporal import TransformerMotionModel
-from diffusion.diffuser.models.transformer_local_attention import LocalTransformer as TransformerLocalAttention
+from diffuser.models.transformer_local_attention import LocalTransformer as TransformerLocalAttention
 from diffuser.models.diffusion_v4 import DiffusionV4
 from diffuser.models.temporal_v2 import TemporalUnet
 import torch.optim as optim
@@ -175,11 +175,11 @@ class DiffusionTrainer:
             ).to(self.device)
         elif self.architecture == 'local_attention':
             model = TransformerLocalAttention(
-                dim=512,
-                depth=6,
-                causal=False,
-                local_attn_window_size=4,
-                max_seq_len=69,
+                dim=config.get("dim", 512),
+                depth=config.get("depth", 6),
+                causal=config.get("causal", False),
+                local_attn_window_size=config.get("local_attn_window_size", 4),
+                max_seq_len=sequence_length,
                 input_dim=input_dim
             ).to(self.device)
         else:
@@ -439,20 +439,30 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    
-    # Default configurations
-    default_model_config = {
-        "latent_dim": 1024,
-        "n_heads": 8,
-        "num_layers": 4,
-        "dropout": 0.25,
-        "dim_feedforward": 32,
-        "pretrained_path": None,
-        # TemporalUnet specific parameters
-        "channel_dim": 128,
-        "dim_mults": (1, 2, 4, 8),
-        "attention": False,
-    }
+
+    if args.architecture == "local_attention":
+        default_local_attention_config = {
+            "dim": 512,
+            "depth": 6,
+            "causal": False,
+            "local_attn_window_size": 512,
+            "max_seq_len": 69,
+            "input_dim": 69
+        }
+        default_model_config = default_local_attention_config
+    else:
+        default_model_config = {
+            "latent_dim": 1024,
+            "n_heads": 8,
+            "num_layers": 4,
+            "dropout": 0.25,
+            "dim_feedforward": 32,
+            "pretrained_path": None,
+            # TemporalUnet specific parameters
+            "channel_dim": 128,
+            "dim_mults": (1, 2, 4, 8),
+            "attention": False,
+        }
     
     default_diffusion_config = {
         "noise_steps": 1000,
@@ -465,7 +475,7 @@ if __name__ == "__main__":
     
     default_training_config = {
         "batch_size": 64,
-        "num_train_steps": 2000,
+        "num_train_steps": 1000,
         "log_interval": 100,
         "save_interval": None
     }
