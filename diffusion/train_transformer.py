@@ -1,5 +1,5 @@
 from diffuser.models.transformer_temporal import TransformerMotionModel
-from diffuser.models.transformer import LocalTransformer as TransformerLocalAttention
+from diffusion.diffuser.models.transformer_local_attention import LocalTransformer as TransformerLocalAttention
 from diffuser.models.diffusion_v4 import DiffusionV4
 from diffuser.models.temporal_v2 import TemporalUnet
 import torch.optim as optim

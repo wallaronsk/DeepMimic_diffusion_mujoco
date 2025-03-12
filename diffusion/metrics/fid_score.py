@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 class MotionFID:
-    def __init__(self, real_dataset, model, device='cuda', batch_size=32, num_samples=1000):
+    def __init__(self, real_dataset, model, device='cuda', batch_size=128, num_samples=512):
         """
         Initialize FID calculator for motion data
         Args:
@@ -25,20 +25,20 @@ class MotionFID:
         """
         Calculate mean and covariance statistics of the data
         """
-        print(f"Processing batch of shape {data.shape}...")
+        # print(f"Processing batch of shape {data.shape}...")
         # Flatten the temporal dimension
         features = data.reshape(data.shape[0], -1)
-        print(f"Flattened to shape {features.shape}")
+        # print(f"Flattened to shape {features.shape}")
         
         # Calculate statistics on GPU
-        print("Computing mean...")
+        # print("Computing mean...")
         mu = torch.mean(features, dim=0)
         # Center the features
-        print("Computing covariance...")
+        # print("Computing covariance...")
         features = features - mu.unsqueeze(0)
         # Calculate covariance
         sigma = (features.T @ features) / (features.shape[0] - 1)
-        print(f"Statistics computed: mean shape {mu.shape}, covariance shape {sigma.shape}")
+        # print(f"Statistics computed: mean shape {mu.shape}, covariance shape {sigma.shape}")
         
         return mu.cpu().numpy(), sigma.cpu().numpy()
     
@@ -46,7 +46,7 @@ class MotionFID:
         """
         Calculate FID score between two distributions
         """
-        print("Converting arrays to tensors...")
+        # print("Converting arrays to tensors...")
         # Convert numpy arrays to torch tensors on GPU
         mu1 = torch.from_numpy(mu1).to(self.device)
         mu2 = torch.from_numpy(mu2).to(self.device)
@@ -55,19 +55,22 @@ class MotionFID:
         
         eps = 1e-6
         
-        print("Computing mean difference...")
+        # print("Computing mean difference...")
         # Calculate squared difference between means
         diff = mu1 - mu2
         diff_square = torch.dot(diff, diff)
         
-        print("Computing matrix square root (this might take a while)...")
+        # print("Computing matrix square root (this might take a while)...")
         # Calculate matrix sqrt using SVD
+        # ensure sigma1 and sigma2 are same dtype
+        sigma1 = sigma1.to(torch.float32)
+        sigma2 = sigma2.to(torch.float32)
         product = sigma1 @ sigma2
         U, s, Vh = torch.linalg.svd(product)
         sqrt_s = torch.sqrt(torch.clamp(s, min=eps))
         covmean = U @ torch.diag(sqrt_s) @ Vh
         
-        print("Computing final FID score...")
+        # print("Computing final FID score...")
         tr_covmean = torch.trace(covmean)
         
         fid = (diff_square + 
@@ -84,7 +87,7 @@ class MotionFID:
         all_features = []
         dataloader = DataLoader(self.real_dataset, batch_size=self.batch_size, shuffle=True)
         
-        print("Processing real data...")
+        # print("Processing real data...")
         for batch in tqdm(dataloader):
             trajectories = batch.trajectories.to(self.device)
             all_features.append(trajectories)
@@ -102,7 +105,7 @@ class MotionFID:
         all_features = []
         num_batches = (self.num_samples + self.batch_size - 1) // self.batch_size
         
-        print("Generating samples...")
+        # print("Generating samples...")
         for _ in tqdm(range(num_batches)):
             # Get conditioning from a random real sample
             idx = np.random.randint(len(self.real_dataset))
@@ -127,15 +130,15 @@ class MotionFID:
         """
         Compute FID score between real and generated distributions
         """
-        print("\nStep 1: Computing statistics for real data...")
+        # print("\nStep 1: Computing statistics for real data...")
         # Get statistics for real data
         mu_real, sigma_real = self.get_real_activations()
         
-        print("\nStep 2: Computing statistics for generated data...")
+        # print("\nStep 2: Computing statistics for generated data...")
         # Get statistics for generated data
         mu_gen, sigma_gen = self.get_generated_activations()
         
-        print("\nStep 3: Computing FID score...")
+        # print("\nStep 3: Computing FID score...")
         # Calculate FID
         fid_score = self.calculate_fid(mu_real, sigma_real, mu_gen, sigma_gen)
         
