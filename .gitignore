@@ -7,3 +7,10 @@ motion-diffusion-model/
 test-motion-diffusion/
 diffusion/logs/*
 diffusion/mlruns/*
+*archive/*
+diffusion/experiments/*
+diffusion/model_eval_results/*
+diffusion/results/*
+diffusion/models*
+diffusion/testoutput*
+diffusion/test_output*
