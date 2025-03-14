@@ -1,3 +1,7 @@
+####
+#### Code and supporting libraries in this script have been adapted from https://github.com/lucidrains/local-attention
+####
+
 from __future__ import annotations
 from copy import deepcopy
 from collections import namedtuple
