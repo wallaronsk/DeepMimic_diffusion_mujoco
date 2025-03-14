@@ -10,6 +10,7 @@ from torch.nn import Module, ModuleList
 from einops import rearrange, einsum
 
 from .local_attention import LocalAttention
+from .optimized_local_attention import OptimizedLocalAttention
 from .rotary import apply_rotary_pos_emb
 
 from hyper_connections import get_init_and_expand_reduce_stream_functions
@@ -58,15 +59,6 @@ def timestep_embedding(timesteps, embedding_dim, max_period=10000):
         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
     return embedding
 
-# sampling functions
-
-def top_k(logits, thres = 0.9):
-    k = int((1 - thres) * logits.shape[-1])
-    val, ind = torch.topk(logits, k)
-    probs = torch.full_like(logits, float('-inf'))
-    probs.scatter_(1, ind, val)
-    return probs
-
 # multi-head attention
 
 class LocalMHA(Module):
@@ -86,6 +78,7 @@ class LocalMHA(Module):
         xpos_scale_base = None,
         exact_windowsize = None,
         gate_values_per_head = False,
+        use_optimized_attention = False,
         **kwargs
     ):
         super().__init__()        
@@ -106,10 +99,13 @@ class LocalMHA(Module):
         self.window_size = window_size
         self.exact_windowsize = default(exact_windowsize, True)
 
-        self.attn_fn = LocalAttention(
+        # Choose attention implementation
+        AttentionClass = OptimizedLocalAttention if use_optimized_attention else LocalAttention
+        self.attn_fn = AttentionClass(
             dim = dim_head,
             window_size = window_size,
             causal = causal,
+            dropout=dropout,
             autopad = True,
             scale = (qk_scale if qk_rmsnorm else None),
             exact_windowsize = self.exact_windowsize,
@@ -285,6 +281,7 @@ class LocalTransformer(Module):
         global_attn_layer: Module | None = None,
         layers_insert_global_attn: tuple[int, ...] | None = None,
         num_residual_streams = 4,
+        use_optimized_attention = False,
         **kwargs
     ):
         super().__init__()
@@ -324,9 +321,22 @@ class LocalTransformer(Module):
             layer = index + 1
 
             self.global_layers.append(init_hyper_conn(dim = dim, branch = deepcopy(global_attn_layer)) if exists(global_attn_layer) and layer in global_attn_layers else None)
-
+            # add local attention and feedforward (Encoder block essentially)
             self.layers.append(nn.ModuleList([
-                init_hyper_conn(dim = dim, branch = LocalMHA(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, causal = causal, window_size = local_attn_window_size, use_xpos = use_xpos, xpos_scale_base = xpos_scale_base, use_rotary_pos_emb = not use_dynamic_pos_bias, prenorm = True, **kwargs)),
+                init_hyper_conn(dim = dim, branch = LocalMHA(
+                    dim = dim, 
+                    dim_head = dim_head, 
+                    heads = heads, 
+                    dropout = attn_dropout, 
+                    causal = causal, 
+                    window_size = local_attn_window_size, 
+                    use_xpos = use_xpos, 
+                    xpos_scale_base = xpos_scale_base, 
+                    use_rotary_pos_emb = not use_dynamic_pos_bias, 
+                    prenorm = True,
+                    use_optimized_attention = use_optimized_attention,
+                    **kwargs
+                )),
                 init_hyper_conn(dim = dim, branch = FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout))
             ]))
 
@@ -334,7 +344,7 @@ class LocalTransformer(Module):
         
         # Replace logits output with motion output
         self.final_layer = nn.Sequential(
-            nn.LayerNorm(dim),
+            nn.LayerNorm(dim), 
             nn.Linear(dim, input_dim)
         )
         
@@ -361,7 +371,9 @@ class LocalTransformer(Module):
 
         # Add positional embedding
         assert n <= self.max_seq_len
-        x = x + self.pos_emb(torch.arange(n, device = device))
+        pos_emb = self.pos_emb(torch.arange(n, device = device))
+        # pos_emb = self.pos_emb(x)
+        x = x + pos_emb
 
         # handle old and new cache
         has_cache = exists(cache)
