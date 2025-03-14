@@ -6,7 +6,7 @@ import math
 
 class DiffusionV4:
     def __init__(self, noise_steps, beta_start, beta_end, joint_dim, frames, device="cuda", predict_x0=False, 
-                 schedule_type="linear", cosine_s=0.008):
+                 schedule_type="linear", cosine_s=0.008, cfg_scale=3.0):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
         self.beta_end = beta_end
@@ -14,7 +14,7 @@ class DiffusionV4:
         self.frames = frames
         self.device = device
         self.predict_x0 = predict_x0
-
+        self.cfg_scale = cfg_scale
         # Noise schedule parameters
         self.schedule_type = schedule_type
         self.cosine_s = cosine_s
@@ -79,7 +79,7 @@ class DiffusionV4:
     def sample_timesteps(self, batch_size):
         return torch.randint(0, self.noise_steps, (batch_size,), device=self.device)
     
-    def sample(self, model, n, custom_frames=None, condition=None):
+    def sample(self, model, n, custom_frames=None, condition=None, y=None):
         """
         Sample n samples from the model, using the reverse diffusion process
         
@@ -87,7 +87,8 @@ class DiffusionV4:
             model: The model to sample from
             n: Number of samples to generate
             custom_frames: Optional custom number of frames to generate (default: self.frames)
-            condition: Optional condition to sample from
+            condition: Optional condition to sample from (kept for backward compatibility)
+            y: Optional motion class to sample from
         """
         model.eval()
         with torch.no_grad():
@@ -102,7 +103,16 @@ class DiffusionV4:
                 
                 if self.predict_x0:
                     # Model predicts x0 directly
-                    predicted_x0 = model(x, t)
+                    predicted_x0 = model(x, t, y)
+                    
+                    # Apply classifier-free guidance if scale > 0 and conditional information available
+                    if self.cfg_scale > 0 and y is not None:
+                        # Get unconditional prediction
+                        uncond_predicted_x0 = model(x, t, None)
+                        
+                        # Interpolate between the unconditional and conditional predictions
+                        # cfg_scale controls the strength of the guidance
+                        predicted_x0 = torch.lerp(uncond_predicted_x0, predicted_x0, self.cfg_scale)
                     
                     # Convert predicted x0 to predicted noise
                     alpha_hat = self.alpha_hat[t][:, None, None]
@@ -113,7 +123,15 @@ class DiffusionV4:
                     predicted_noise = (x - torch.sqrt(alpha_hat) * predicted_x0) / sqrt_one_minus_alpha_hat
                 else:
                     # Model predicts noise directly (original behavior)
-                    predicted_noise = model(x, t)
+                    predicted_noise = model(x, t, y)
+                    
+                    # Apply classifier-free guidance if scale > 0 and conditional information available
+                    if self.cfg_scale > 0 and y is not None:
+                        # Get unconditional prediction
+                        uncond_predicted_noise = model(x, t, None)
+                        
+                        # Apply guidance formula for noise prediction
+                        predicted_noise = uncond_predicted_noise + self.cfg_scale * (predicted_noise - uncond_predicted_noise)
                 
                 # The rest of the sampling process remains the same
                 alpha = self.alpha[t][:, None, None]
@@ -130,7 +148,7 @@ class DiffusionV4:
         model.train()
         return x
 
-    def training_loss(self, model, x_start, t):
+    def training_loss(self, model, x_start, t, y=None):
         """
         Calculate the training loss for the diffusion model.
         
@@ -151,7 +169,7 @@ class DiffusionV4:
         # Get model predictions (either predict_noise or predict_x0)
         if self.predict_x0:
             # Model predicts x0 directly
-            predicted_x0 = model(x_noisy, t)
+            predicted_x0 = model(x_noisy, t, y)
             
             # Calculate noise from predicted x0 for loss
             alpha_hat = self.alpha_hat[t].view(-1, 1, 1)
@@ -160,7 +178,7 @@ class DiffusionV4:
             predicted_noise = (x_noisy - torch.sqrt(alpha_hat) * predicted_x0) / torch.sqrt(beta_hat)
         else:
             # Model predicts noise directly
-            predicted_noise = model(x_noisy, t)
+            predicted_noise = model(x_noisy, t, y)
             
             # For motion losses, we need x0 too
             alpha_hat = self.alpha_hat[t].view(-1, 1, 1)

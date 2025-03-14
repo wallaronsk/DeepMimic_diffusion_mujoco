@@ -141,14 +141,14 @@ def evaluate(model, diffusion, eval_wrapper, num_samples_limit, replication_time
 
     return results
 
-model_arch = "local_attention"
+model_arch = "transformer"
 input_dim = 69
 model_config = {
     "input_dim": input_dim,
-    "latent_dim": 512,
-    "n_heads": 4,
-    "num_layers": 8,
-    "dropout": 0.1,
+    "latent_dim": 32,
+    "n_heads": 8,
+    "num_layers": 4,
+    "dropout": 0,
     # UNET
     "channel_dim": 128,
     "channel_mult": [1, 2, 4, 8],
@@ -205,7 +205,7 @@ def main():
             local_attn_window_size=model_local_attention_config.get("local_attn_window_size", 4),
         ).to(device)
     
-    pretrained_model_path = "experiments/local_attention_predict_x0_20250312_115057/best_model_20250312_115058_local_attention_x0_step1800_loss0.002409.pth"
+    pretrained_model_path = "experiments/transformer_predict_x0_20250313_161248/best_model_20250313_161248_transformer_x0_step39300_loss0.019076.pth"
     
     if pretrained_model_path:   
         print("Loading pretrained model")
@@ -230,14 +230,14 @@ def main():
 
     eval_wrapper = CustomEvalWrapper(model)
     eval_dict = evaluate(model, diffusion, eval_wrapper, num_samples_limit, replication_times)
-    results_folder = r"model_eval_results/local_attention/trained"
-    if not os.path.exists(results_folder):
-        os.makedirs(results_folder)
-    log_file = os.path.join(results_folder, "eval_results_local_attention_trained_1000_steps.log")
-    with open(log_file, 'w') as fw:
-        fw.write(str(eval_dict))
-    print("Saved eval results to {}".format(log_file))
-    np.save(log_file.replace('.log', '.npy'), eval_dict)
+    # results_folder = r"model_eval_results/local_attention/trained"
+    # if not os.path.exists(results_folder):
+    #     os.makedirs(results_folder)
+    # log_file = os.path.join(results_folder, "eval_results_local_attention_trained_1000_steps.log")
+    # with open(log_file, 'w') as fw:
+    #     fw.write(str(eval_dict))
+    # print("Saved eval results to {}".format(log_file))
+    # np.save(log_file.replace('.log', '.npy'), eval_dict)
 
 
 if __name__ == '__main__':

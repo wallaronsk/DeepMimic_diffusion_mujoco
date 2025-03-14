@@ -1,5 +1,7 @@
+import random
 from diffuser.models.transformer_temporal import TransformerMotionModel
 from diffuser.models.transformer_local_attention import LocalTransformer as TransformerLocalAttention
+from diffuser.models.SimpleEmbeddingsModel import SimpleEmbeddingsModel
 from diffuser.models.diffusion_v4 import DiffusionV4
 from diffuser.models.temporal_v2 import TemporalUnet
 import torch.optim as optim
@@ -17,6 +19,8 @@ import argparse
 import itertools
 import json
 from pathlib import Path
+
+
 
 class EMA:
     def __init__(self, beta):
@@ -57,7 +61,6 @@ class DiffusionTrainer:
         training_config: Dict[str, Any],
         optimizer_config: Dict[str, Any],
         save_path: str,
-        data_type: str = 'both',
         architecture: str = 'transformer',
     ):
         """
@@ -70,18 +73,16 @@ class DiffusionTrainer:
             training_config: Configuration for training (batch size, steps, etc.)
             optimizer_config: Configuration for the optimizer
             save_path: Path to save trained models
-            data_type: Type of data to use - 'positions', 'velocities', or 'both'
             architecture: Type of model architecture - 'transformer' or 'temporal'
         """
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.data_type = data_type
         self.architecture = architecture
         logging.info(f"Using device: {self.device}")
-        logging.info(f"Data type: {self.data_type}")
         logging.info(f"Architecture: {self.architecture}")
         
         # Set up dataset and dataloader
-        self.dataset = MotionDataset(dataset_path, data_type=self.data_type, shuffle=False)
+        self.dataset = MotionDataset(dataset_path, shuffle=False)
+        self.dataset_collate_fn = self.dataset.collate_fn
         self.batch_size = training_config.get("batch_size", 4)
         self.dataloader = self._create_dataloader()
         
@@ -136,7 +137,7 @@ class DiffusionTrainer:
         elif scheduler_type == "exponential":
             self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
                 self.optimizer,
-                gamma=0.99998
+                gamma=0.99997
             )
     
     def _create_dataloader(self):
@@ -145,23 +146,30 @@ class DiffusionTrainer:
             self.dataset,
             batch_size=self.batch_size,
             num_workers=1,
-            shuffle=True,
-            pin_memory=True
+            shuffle=True
         ))
     
     def _create_model(self, config: Dict[str, Any]):
         """Create and initialize the model based on the selected architecture."""
         input_dim = self.dataset[0].trajectories.shape[1]
         sequence_length = self.dataset[0].trajectories.shape[0]
+        # find the maximum sequence length, input dim will always be the same
+        max_sequence_length = self.dataset.max_sequence_length
+        print("max_sequence_length: ", max_sequence_length)
+
         print(config)
         if self.architecture == 'transformer':
             model = TransformerMotionModel(
                 input_dim=input_dim,
+                max_seq_len=max_sequence_length,
                 latent_dim=config.get("latent_dim", 256),
                 n_heads=config.get("n_heads", 4),
                 num_layers=config.get("num_layers", 8),
                 dropout=config.get("dropout", 0.1),
-                dim_feedforward=config.get("dim_feedforward", 512)
+                dim_feedforward=config.get("dim_feedforward", 512),
+                num_classes=config.get("num_classes", 10),
+                random_mask_prob=config.get("random_mask_prob", 0.1),
+                masking_type=config.get("masking_type", "causal")
             ).to(self.device)
         elif self.architecture == 'temporal':
             # Create TemporalUnet model
@@ -176,11 +184,22 @@ class DiffusionTrainer:
         elif self.architecture == 'local_attention':
             model = TransformerLocalAttention(
                 dim=config.get("dim", 512),
-                depth=config.get("depth", 6),
+                depth=config.get("depth", 6), # number of layers
                 causal=config.get("causal", False),
                 local_attn_window_size=config.get("local_attn_window_size", 4),
-                max_seq_len=sequence_length,
-                input_dim=input_dim
+                max_seq_len=config.get("max_seq_len", 69),
+                input_dim=input_dim,
+                attn_dropout=config.get("attn_dropout", 0.4),
+                ff_dropout=config.get("ff_dropout", 0.4),
+                heads=config.get("heads", 8), # number of attention heads
+                dim_head=config.get("dim_head", 64), # dimension of each attention head
+                use_optimized_attention=config.get("use_optimized_attention", False)
+            ).to(self.device)
+        elif self.architecture == 'simple_embeddings':
+            model = SimpleEmbeddingsModel(
+                input_dim=input_dim,
+                embedding_dim=config.get("embedding_dim", 256),
+                num_layers=config.get("num_layers", 4)
             ).to(self.device)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
@@ -204,6 +223,7 @@ class DiffusionTrainer:
             predict_x0=config.get("predict_x0", False),
             schedule_type=config.get("schedule_type", "linear"),
             cosine_s=config.get("cosine_s", 0.008),
+            cfg_scale=config.get("cfg_scale", 3.0)
         )
     
     def _create_optimizer(self, config: Dict[str, Any]):
@@ -255,6 +275,11 @@ class DiffusionTrainer:
             batch = next(self.dataloader)
 
             x_start = batch.trajectories.to(self.device)
+            y = batch.motion_class.to(self.device)
+
+            # with probability 0.1, set y to None
+            if random.random() < 0.1:
+                y = None
 
             # Print shape information on first step
             if step == 0:
@@ -262,7 +287,7 @@ class DiffusionTrainer:
             
             # Sample timesteps and compute loss
             t = self.diffusion.sample_timesteps(x_start.shape[0])
-            loss = self.diffusion.training_loss(self.model, x_start, t)
+            loss = self.diffusion.training_loss(self.model, x_start, t, y)
             
             # Optimization step
             self.optimizer.zero_grad()
@@ -425,9 +450,9 @@ class DiffusionTrainer:
 if __name__ == "__main__":
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Train diffusion model with hyperparameter tuning")
-    parser.add_argument("--dataset", type=str, default="data/motions/humanoid3d_walk.txt", help="Path to dataset")
-    parser.add_argument("--architecture", type=str, default="local_attention", 
-                        choices=["transformer", "temporal", "local_attention"],  # Updated choices
+    parser.add_argument("--dataset", type=str, default="data/motions/humanoid3d_dance_a.txt", help="Path to dataset")
+    parser.add_argument("--architecture", type=str, default="transformer", 
+                        choices=["transformer", "temporal", "local_attention", "simple_embeddings"],
                         help="Architecture to use for the model")
     parser.add_argument("--experiments_dir", type=str, default="experiments", help="Directory to save all experiments")
     parser.add_argument("--sweep", action="store_true", help="Run hyperparameter sweep")
@@ -445,19 +470,34 @@ if __name__ == "__main__":
             "dim": 512,
             "depth": 6,
             "causal": False,
-            "local_attn_window_size": 512,
-            "max_seq_len": 69,
-            "input_dim": 69
+            "local_attn_window_size": 16,
+            "max_seq_len": 128,
+            "input_dim": 69,
+            "attn_dropout": 0.3,
+            "ff_dropout": 0.3,
+            "heads": 8,
+            "dim_head": 64,
+            "use_optimized_attention": False,
+            "pretrained_path": "experiments/local_attention_predict_x0_20250313_184449/best_model_20250313_184449_local_attention_x0_step1700_loss0.065025.pth"
         }
         default_model_config = default_local_attention_config
+    elif args.architecture == "simple_embeddings":
+        default_model_config = {
+            "embedding_dim": 256,
+            "num_layers": 1,
+            "input_dim": 69
+        }
     else:
         default_model_config = {
-            "latent_dim": 1024,
+            "latent_dim": 512,
             "n_heads": 8,
             "num_layers": 4,
-            "dropout": 0.25,
-            "dim_feedforward": 32,
-            "pretrained_path": None,
+            "dropout": 0,
+            "dim_feedforward": 2048,
+            "num_classes": 0,
+            "random_mask_prob": 0.1,
+            "masking_type": None,
+            "pretrained_path": "",
             # TemporalUnet specific parameters
             "channel_dim": 128,
             "dim_mults": (1, 2, 4, 8),
@@ -471,21 +511,22 @@ if __name__ == "__main__":
         "predict_x0": True,
         "schedule_type": "cosine",
         "cosine_s": 0.008,
+        # "cfg_scale": 3.0
     }
     
     default_training_config = {
         "batch_size": 64,
-        "num_train_steps": 1000,
+        "num_train_steps": 5000,
         "log_interval": 100,
         "save_interval": None
     }
     
     default_optimizer_config = {
-        "lr": 1e-4,
+        "lr": 2e-4,
         "weight_decay": 0,
         "betas": [0.9, 0.98],
         "optimizer_type": "adamw",
-        "scheduler_type": "linear"
+        "scheduler_type": "exponential"
     }
     
     def run_single_experiment(model_config, diffusion_config, training_config, optimizer_config, 

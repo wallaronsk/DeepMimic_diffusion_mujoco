@@ -3,6 +3,7 @@ from diffuser.models.transformer_temporal import TransformerMotionModel
 from diffuser.models.transformer_local_attention import LocalTransformer as TransformerLocalAttention
 from diffuser.models.diffusion_v4 import DiffusionV4
 from diffuser.models.temporal_v2 import TemporalUnet
+from diffuser.models.SimpleEmbeddingsModel import SimpleEmbeddingsModel
 from data_loaders.motion_dataset_v2 import MotionDataset
 import os
 import numpy as np
@@ -23,7 +24,6 @@ class DiffusionInference:
         diffusion_config: Dict[str, Any],
         model_config: Optional[Dict[str, Any]] = None,
         device: Optional[str] = None,
-        data_type: Optional[str] = None,
         architecture: Optional[str] = None
     ):
         """
@@ -35,9 +35,6 @@ class DiffusionInference:
             diffusion_config: Configuration for the diffusion process
             model_config: Optional configuration for model architecture
             device: Device to run inference on (defaults to CUDA if available)
-            data_type: Type of data to use - 'positions', 'velocities', or 'both'
-                       If None, will be loaded from checkpoint if available,
-                       otherwise defaults to 'both'
             architecture: Type of model architecture - 'transformer' or 'temporal'
                           If None, will be loaded from checkpoint if available,
                           otherwise defaults to 'transformer'
@@ -45,25 +42,11 @@ class DiffusionInference:
         # Set device
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Load checkpoint first to get data_type and architecture if available
+        # Load checkpoint first to get architecture if available
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model not found at {model_path}")
             
         checkpoint = torch.load(model_path, map_location=self.device)
-        
-        # Determine data_type - prioritize explicitly provided value, then checkpoint, then default
-        if data_type is not None:
-            self.data_type = data_type
-            logging.info(f"Using provided data_type: {self.data_type}")
-        else:
-            # Extract data_type from checkpoint or use default
-            checkpoint_data_type = self._get_from_checkpoint(checkpoint, 'data_type')
-            if checkpoint_data_type:
-                self.data_type = checkpoint_data_type
-                logging.info(f"Using data_type from checkpoint: {self.data_type}")
-            else:
-                self.data_type = 'both'
-                logging.info(f"No data_type found in checkpoint. Using default: {self.data_type}")
 
         # Determine architecture - prioritize explicitly provided value, then checkpoint, then default
         if architecture is not None:
@@ -79,8 +62,8 @@ class DiffusionInference:
                 self.architecture = 'transformer'
                 logging.info(f"No architecture found in checkpoint. Using default: {self.architecture}")
         
-        # Set up dataset with correct data_type
-        self.dataset = MotionDataset(dataset_path, data_type=self.data_type)
+        # Set up dataset
+        self.dataset = MotionDataset(dataset_path)
         self.joint_dim = self.dataset[0].trajectories.shape[1]
         self.frames = self.dataset[0].trajectories.shape[0]
         
@@ -119,7 +102,8 @@ class DiffusionInference:
                 n_heads=model_config.get("n_heads", 4),
                 num_layers=model_config.get("num_layers", 8),
                 dropout=model_config.get("dropout", 0.1),
-                dim_feedforward=model_config.get("dim_feedforward", 512)
+                dim_feedforward=model_config.get("dim_feedforward", 512),
+                num_classes=model_config.get("num_classes", 1)
             ).to(self.device)
         elif self.architecture == 'temporal':
             # Create TemporalUnet model
@@ -139,6 +123,12 @@ class DiffusionInference:
                 depth=model_local_attention_config.get("depth", 6),
                 local_attn_window_size=model_local_attention_config.get("local_attn_window_size", 4),
                 causal=False
+            ).to(self.device)
+        elif self.architecture == 'simple_embeddings':
+            model = SimpleEmbeddingsModel(
+                embedding_dim=simple_embeddings_config.get("embedding_dim", 128),
+                num_layers=simple_embeddings_config.get("num_layers", 4),
+                input_dim=simple_embeddings_config.get("input_dim", 69)
             ).to(self.device)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
@@ -171,9 +161,11 @@ class DiffusionInference:
             predict_x0=config.get("predict_x0", True),
             schedule_type=config.get("schedule_type", "cosine"),
             cosine_s=config.get("cosine_s", 0.008),
+            cfg_scale=config.get("cfg_scale", 3.0)
         )
     
-    def generate_samples(self, num_samples: int = 1, custom_frames: Optional[int] = None) -> torch.Tensor:
+    def generate_samples(self, num_samples: int = 1, custom_frames: Optional[int] = None, 
+                         y: Optional[torch.Tensor] = None, cfg_scale: Optional[float] = None) -> torch.Tensor:
         """
         Generate motion samples using the trained model.
         
@@ -181,13 +173,41 @@ class DiffusionInference:
             num_samples: Number of motion samples to generate
             custom_frames: Optional number of frames to generate
                            (overrides the default from the model)
-                           
+            y: Optional class labels for classifier-free guidance
+            cfg_scale: Optional classifier-free guidance scale
+                      (overrides the default set during initialization)
         Returns:
             Tensor of generated motion samples
         """
         self.model.eval()
         with torch.no_grad():
-            samples = self.diffusion.sample(self.model, num_samples, custom_frames)
+            # If cfg_scale is provided, temporarily update the diffusion model's cfg_scale
+            original_cfg_scale = None
+            if cfg_scale is not None:
+                original_cfg_scale = self.diffusion.cfg_scale
+                self.diffusion.cfg_scale = cfg_scale
+            
+            # If y is provided, move it to the correct device
+            if y is not None:
+                if isinstance(y, (int, float)):
+                    y = torch.tensor([y] * num_samples, device=self.device)
+                elif isinstance(y, torch.Tensor):
+                    y = y.to(self.device)
+                
+                log_msg = f"Generating {num_samples} sample(s) with class {y.tolist()}"
+                if cfg_scale is not None and cfg_scale > 0:
+                    log_msg += f", CFG scale: {cfg_scale}"
+                logging.info(log_msg)
+            else:
+                logging.info(f"Generating {num_samples} unconditional sample(s)")
+            
+            # Generate samples with conditions if provided
+            samples = self.diffusion.sample(self.model, num_samples, custom_frames, y=y)
+            
+            # Restore original cfg_scale if it was temporarily changed
+            if original_cfg_scale is not None:
+                self.diffusion.cfg_scale = original_cfg_scale
+                
         return samples
     
     def save_motions(
@@ -216,6 +236,9 @@ class DiffusionInference:
         # Default joint indices if not provided
         if joint_indices is None:
             joint_indices = list(range(35))  # Default to first 35 joints
+        elif len(joint_indices) != 35:
+            logging.warning(f"MuJoCo expects exactly 35 joints, but {len(joint_indices)} were provided. Using the first 35 available.")
+            joint_indices = joint_indices[:35] if len(joint_indices) > 35 else joint_indices + list(range(len(joint_indices), 35))
             
         # Generate default filenames if not provided
         if filenames is None:
@@ -228,17 +251,28 @@ class DiffusionInference:
         saved_paths = []
         for i, filename in enumerate(filenames[:samples.shape[0]]):
             filepath = os.path.join(output_dir, filename)
+            abs_filepath = os.path.abspath(filepath)
             
-            # Extract the specified joints
+            # Extract the specified joints and ensure shape is (num_frames, 35)
             pos_data = samples[i, :, joint_indices].cpu().numpy()
-            # print the shape of the motion data
-            logging.info(f"Motion data shape: {pos_data.shape}")
+            
+            # Ensure we have exactly 35 joints for MuJoCo
+            num_frames, num_joints = pos_data.shape
+            if num_joints < 35:
+                # Pad with zeros if less than 35 joints
+                logging.warning(f"Padding data with zeros to get 35 joints (was {num_joints})")
+                padding = np.zeros((num_frames, 35 - num_joints))
+                pos_data = np.concatenate([pos_data, padding], axis=1)
+            elif num_joints > 35:
+                # Take only first 35 joints if more than 35
+                logging.warning(f"Truncating data to get 35 joints (was {num_joints})")
+                pos_data = pos_data[:, :35]
             
             # Save the motion data
             np.save(filepath, pos_data)
-            saved_paths.append(filepath)
-            logging.info(f"Motion saved as {filepath}")
+            saved_paths.append(abs_filepath)
             
+        logging.info(f"Saved {len(saved_paths)} motion sample(s) to {output_dir} with shape ({num_frames}, 35)")
         return saved_paths
 
     def _get_from_checkpoint(self, checkpoint, key, default=None):
@@ -256,8 +290,9 @@ def compare_models(
     diffusion_config: Optional[Dict[str, Any]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     device: Optional[str] = None,
-    data_type: Optional[str] = None,
-    architecture: Optional[str] = None
+    architecture: Optional[str] = None,
+    y: Optional[torch.Tensor] = None,
+    cfg_scale: Optional[float] = None
 ) -> Dict[str, List[str]]:
     """
     Compare multiple models by generating motions from each model.
@@ -271,8 +306,9 @@ def compare_models(
         diffusion_config: Configuration for the diffusion model (optional)
         model_config: Configuration for the model (optional)
         device: Device to run inference on (optional)
-        data_type: Type of data to generate (optional)
         architecture: Type of model architecture (optional)
+        y: Optional class labels for classifier-free guidance
+        cfg_scale: Optional classifier-free guidance scale
         
     Returns:
         Dictionary mapping model names to lists of motion file paths
@@ -313,12 +349,16 @@ def compare_models(
             diffusion_config=diffusion_config,
             model_config=model_config,
             device=device,
-            data_type=data_type,
             architecture=architecture
         )
         
         # Generate samples
-        samples = inference.generate_samples(num_samples=num_samples, custom_frames=custom_frames)
+        samples = inference.generate_samples(
+            num_samples=num_samples, 
+            custom_frames=custom_frames,
+            y=y,
+            cfg_scale=cfg_scale
+        )
         
         # Create a subdirectory for this model
         model_motion_dir = os.path.join(motion_dir, model_name)
@@ -350,10 +390,10 @@ if __name__ == "__main__":
     )
     
     # Configuration
-    dataset_path = "data/motions/humanoid3d_walk.txt"
+    dataset_path = "data/motions/humanoid3d_dance_a.txt"
     model_dir = "models/transformer_motion_model_no_motion_losses"
     output_dir = "test_output/sampled_motions"
-    specific_model = "experiments/local_attention_predict_x0_20250312_115057/best_model_20250312_115058_local_attention_x0_step1800_loss0.002409.pth"
+    specific_model = "experiments/transformer_predict_x0_20250314_151723/best_model_20250314_151724_transformer_x0_step4400_loss0.002500.pth"
     # Find the latest model
     model_path = specific_model
     if model_path is None:
@@ -367,11 +407,11 @@ if __name__ == "__main__":
     
     # Model configuration (only needed if loading state_dict)
     model_config = {
-        "latent_dim": 1024,
+        "latent_dim": 512,
         "n_heads": 8,
         "num_layers": 4,
-        "dropout": 0.25,
-        "dim_feedforward": 32,
+        "dropout": 0.4,
+        "dim_feedforward": 2048,
         # TemporalUnet specific parameters (will be used if architecture is 'temporal')
         "dim_mults": (1, 2, 4, 8),
         "attention": False,
@@ -382,8 +422,20 @@ if __name__ == "__main__":
         "dim": 512,
         "depth": 6,
         "causal": False,
-        "local_attn_window_size": 4,
-        "max_seq_len": 69,
+        "local_attn_window_size": 16,
+        "max_seq_len": 128,
+        "input_dim": 69,
+        "attn_dropout": 0.3,
+        "ff_dropout": 0.3,
+        "heads": 8,
+        "dim_head": 64,
+        "use_optimized_attention": False,
+        "pretrained_path": None
+    }
+
+    simple_embeddings_config = {
+        "embedding_dim": 256,
+        "num_layers": 1,
         "input_dim": 69
     }
     
@@ -393,8 +445,10 @@ if __name__ == "__main__":
         "beta_start": 1e-4,
         "beta_end": 0.02,
         "predict_x0": True,
-        "schedule_type": "linear",
-        "cosine_s": 0.008
+        "schedule_type": "cosine",
+        "cosine_s": 0.008,
+        "num_classes": 1,
+        "cfg_scale": None  # Classifier-free guidance scale
     }
     
     # Create experiment subfolder with timestamp
@@ -402,9 +456,12 @@ if __name__ == "__main__":
     experiment_dir = os.path.join(output_dir, f"experiment_{timestamp}")
     os.makedirs(experiment_dir, exist_ok=True)
     
-    custom_frames = None # Set to None to use default length from dataset
-    data_type = 'both'
-    architecture = 'local_attention'  # Set to None to use architecture from checkpoint, or specify 'transformer'
+    custom_frames = None  # Set to None to use default length from dataset
+    architecture = 'transformer'  # Set to None to use architecture from checkpoint, or specify 'transformer'
+    
+    # Classifier-free guidance parameters
+    motion_class = None  # Dance class
+    cfg_scale = 0   # Guidance scale - higher values give stronger guidance
     
     # Save experiment metadata
     metadata = {
@@ -414,11 +471,16 @@ if __name__ == "__main__":
         "diffusion_config": diffusion_config,
         "dataset_path": dataset_path,
         "custom_frames": custom_frames,
-        "data_type": data_type,
-        "architecture": architecture
+        "architecture": architecture,
+        "motion_class": motion_class,
+        "cfg_scale": cfg_scale
     }
     with open(os.path.join(experiment_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=4)
+    
+    logging.info(f"Starting motion generation experiment in {experiment_dir}")
+    logging.info(f"Using model: {os.path.basename(model_path)}")
+    logging.info(f"Architecture: {architecture}, Motion class: {motion_class}, CFG scale: {cfg_scale}")
     
     # Create inference engine
     inference_engine = DiffusionInference(
@@ -426,56 +488,120 @@ if __name__ == "__main__":
         dataset_path=dataset_path,
         diffusion_config=diffusion_config,
         model_config=model_config,
-        data_type=data_type,
         architecture=architecture
     )
     
     # Generate samples
     num_samples = 1
     
-    samples = inference_engine.generate_samples(num_samples, custom_frames)
-    logging.info(f"Generated {num_samples} samples with shape {samples.shape}")
+    # Generate samples with classifier-free guidance
+    # Convert motion_class to tensor if needed
+    y = torch.tensor([motion_class], device=inference_engine.device) if motion_class is not None else None
     
-    # Save samples
-    saved_paths = inference_engine.save_motions(
-        samples=samples,
-        output_dir=experiment_dir,
-        filenames=[f"motion_{model_name}_{inference_engine.architecture}_frames_{custom_frames or inference_engine.frames}_{i}.npy" 
-                  for i in range(num_samples)]
+    # Generate samples with guidance
+    samples_with_guidance = inference_engine.generate_samples(
+        num_samples=num_samples, 
+        custom_frames=custom_frames,
+        y=y,
+        cfg_scale=cfg_scale
     )
     
-    logging.info(f"Saved {len(saved_paths)} motion samples to {experiment_dir}")
-
-    # ADD COMPARISON OF MULTIPLE MODELS
-    # Define an array of model paths to compare
-    model_paths_to_compare = [
-    ]
+    # Generate samples without guidance for comparison
+    samples_without_guidance = inference_engine.generate_samples(
+        num_samples=num_samples, 
+        custom_frames=custom_frames,
+        y=y,
+        cfg_scale=0.0  # Disable guidance
+    )
     
-    # Only proceed with comparison if we have multiple models
-    if len(model_paths_to_compare) > 1:
-        logging.info(f"Comparing {len(model_paths_to_compare)} models...")
-        
-        # Create a subdirectory for comparison results
-        comparison_dir = os.path.join(experiment_dir, "model_comparison")
-        if not os.path.exists(comparison_dir):
-            os.makedirs(comparison_dir)
-        
-        # Run the comparison
-        comparison_results = compare_models(
-            model_paths=model_paths_to_compare,
-            dataset_path=dataset_path,
-            output_dir=comparison_dir,
-            num_samples=1,  # Generate 1 sample per model
+    # Save samples with guidance
+    with_cfg_filenames = [f"with_cfg{cfg_scale}_class{motion_class}_{i}.npy" for i in range(num_samples)]
+    saved_paths_with_guidance = inference_engine.save_motions(
+        samples=samples_with_guidance,
+        output_dir=experiment_dir,
+        filenames=with_cfg_filenames
+    )
+    
+    # Save samples without guidance
+    no_cfg_filenames = [f"no_cfg_class{motion_class}_{i}.npy" for i in range(num_samples)]
+    saved_paths_without_guidance = inference_engine.save_motions(
+        samples=samples_without_guidance,
+        output_dir=experiment_dir,
+        filenames=no_cfg_filenames
+    )
+    
+    # Print playback paths for easy use
+    logging.info("\n" + "="*50)
+    logging.info("GENERATED MOTION FILES READY FOR PLAYBACK:")
+    logging.info("="*50)
+    
+    if saved_paths_with_guidance:
+        logging.info(f"Motion with CFG (scale={cfg_scale}):")
+        for path in saved_paths_with_guidance:
+            logging.info(f"  {path}")
+    
+    if saved_paths_without_guidance:
+        logging.info(f"Motion without CFG:")
+        for path in saved_paths_without_guidance:
+            logging.info(f"  {path}")
+    
+    logging.info("="*50)
+
+    # Test different CFG scales
+    # cfg_scales = [0.0, 1.0, 3.0, 5.0, 7.0]
+    cfg_scales = [3.0]
+    cfg_samples = {}
+    cfg_sample_paths = {}
+    
+    # Create a subdirectory for CFG comparison
+    cfg_comparison_dir = os.path.join(experiment_dir, "cfg_comparison")
+    os.makedirs(cfg_comparison_dir, exist_ok=True)
+    
+    if len(cfg_scales) > 1:
+        logging.info(f"Running CFG comparison with scales: {cfg_scales}")
+    
+    for scale in cfg_scales:
+        # Generate sample with current CFG scale
+        sample = inference_engine.generate_samples(
+            num_samples=1,
             custom_frames=custom_frames,
-            diffusion_config=diffusion_config,
-            model_config=model_config,
-            data_type=data_type,
-            architecture=architecture
+            y=y,
+            cfg_scale=scale
         )
         
-        logging.info(f"Model comparison completed. Results saved to {comparison_dir}")
+        cfg_samples[scale] = sample
         
-        # Print paths to motion files
-        for model_name, result in comparison_results.items():
-            for i, motion_path in enumerate(result["motion_paths"]):
-                logging.info(f"Model {model_name} ({result['architecture']}), Sample {i+1}: {motion_path}")
+        # Save sample
+        filename = f"cfg_{scale}_class{motion_class}.npy"
+        filepath = os.path.join(cfg_comparison_dir, filename)
+        abs_filepath = os.path.abspath(filepath)
+        
+        # Extract and save
+        pos_data = sample[0, :, :35].cpu().numpy()
+        np.save(filepath, pos_data)
+        cfg_sample_paths[scale] = abs_filepath
+    
+    # Save CFG comparison metadata
+    if len(cfg_scales) > 1:
+        cfg_comparison_metadata = {
+            "cfg_scales": cfg_scales,
+            "sample_paths": cfg_sample_paths,
+            "model_path": model_path,
+            "motion_class": motion_class
+        }
+        
+        with open(os.path.join(cfg_comparison_dir, "cfg_comparison_metadata.json"), "w") as f:
+            json.dump(cfg_comparison_metadata, f, indent=4)
+        
+        # Print CFG comparison paths
+        logging.info("\n" + "="*50)
+        logging.info("CFG COMPARISON MOTION FILES:")
+        logging.info("="*50)
+        
+        for scale, path in cfg_sample_paths.items():
+            logging.info(f"  CFG Scale {scale}: {path}")
+        
+        logging.info("="*50)
+        logging.info(f"Completed CFG comparison experiment with {len(cfg_scales)} different scales")
+    
+    logging.info("Motion generation experiment completed successfully")
